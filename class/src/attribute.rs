@@ -1,5 +1,6 @@
-use crate::{ClassError, ClassFile, ClassResolvable, Parsable, SourceStream, Streamable};
+use crate::{ClassFile, ClassResolvable, SourceStream};
 
+use wasmjvm_common::{WasmJVMError, Streamable, Parsable, FromData};
 use std::slice::Iter;
 
 #[derive(Debug)]
@@ -11,7 +12,7 @@ pub struct AttributeInfo {
 #[derive(Debug)]
 pub struct Attribute {
     name: String,
-    body: AttributeBody,
+    pub body: AttributeBody,
 }
 
 #[derive(Debug)]
@@ -55,7 +56,7 @@ impl Attribute {
 }
 
 impl ClassResolvable<Attribute> for AttributeInfo {
-    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Attribute, ClassError> {
+    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Attribute, WasmJVMError> {
         let name = class_file
             .constant(self.attribute_name_index as usize)?
             .to_string()?;
@@ -108,8 +109,8 @@ impl ClassResolvable<Attribute> for AttributeInfo {
     }
 }
 
-impl Streamable<ExceptionEntry> for ExceptionEntry {
-    fn from_stream(stream: &mut SourceStream) -> Result<ExceptionEntry, ClassError> {
+impl Streamable<SourceStream, ExceptionEntry> for ExceptionEntry {
+    fn from_stream(stream: &mut SourceStream) -> Result<ExceptionEntry, WasmJVMError> {
         let start_pc = stream.parse()?;
         let end_pc = stream.parse()?;
         let handler_pc = stream.parse()?;
@@ -124,8 +125,8 @@ impl Streamable<ExceptionEntry> for ExceptionEntry {
     }
 }
 
-impl Streamable<LineNumberEntry> for LineNumberEntry {
-    fn from_stream(stream: &mut SourceStream) -> Result<LineNumberEntry, ClassError> {
+impl Streamable<SourceStream, LineNumberEntry> for LineNumberEntry {
+    fn from_stream(stream: &mut SourceStream) -> Result<LineNumberEntry, WasmJVMError> {
         let start_pc = stream.parse()?;
         let line_number = stream.parse()?;
 
@@ -136,8 +137,8 @@ impl Streamable<LineNumberEntry> for LineNumberEntry {
     }
 }
 
-impl Streamable<AttributeInfo> for AttributeInfo {
-    fn from_stream(stream: &mut SourceStream) -> Result<AttributeInfo, ClassError> {
+impl Streamable<SourceStream, AttributeInfo> for AttributeInfo {
+    fn from_stream(stream: &mut SourceStream) -> Result<AttributeInfo, WasmJVMError> {
         let attribute_name_index = stream.parse()?;
         let attribute_length: u32 = stream.parse()?;
         let info = stream.parse_vec(attribute_length as usize)?;
@@ -152,7 +153,7 @@ impl Streamable<AttributeInfo> for AttributeInfo {
 pub trait WithAttributes {
     fn attributes(self: &Self) -> Option<Iter<Attribute>>;
 
-    fn attribute(self: &Self, name: &String) -> Result<&Attribute, ClassError> {
+    fn attribute(self: &Self, name: &String) -> Result<&Attribute, WasmJVMError> {
         if let Some(attributes) = self.attributes() {
             for attribute in attributes {
                 if attribute.name() == name {
@@ -161,7 +162,7 @@ pub trait WithAttributes {
             }
         }
 
-        Err(ClassError::AttributeNotFound)
+        Err(WasmJVMError::AttributeNotFound)
     }
 }
 

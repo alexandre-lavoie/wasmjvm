@@ -1,9 +1,10 @@
 use crate::{
-    AccessFlags, Attribute, AttributeInfo, ClassError, ClassFile, ClassResolvable, Constant,
-    Descriptor, Parsable, SourceStream, Streamable, WithAttributes, WithAccessFlags, WithDescriptor,
+    AccessFlags, Attribute, AttributeInfo, ClassFile, ClassResolvable, Constant, Descriptor,
+    SourceStream, WithAccessFlags, WithAttributes, WithDescriptor,
 };
 
 use std::{result::Result, slice::Iter};
+use wasmjvm_common::{Parsable, Streamable, WasmJVMError};
 
 #[derive(Debug)]
 pub struct FieldInfo {
@@ -30,7 +31,7 @@ impl Field {
 pub trait WithFields {
     fn fields(self: &Self) -> Option<Iter<Field>>;
 
-    fn field(self: &Self, name: &String) -> Result<&Field, ClassError> {
+    fn field(self: &Self, name: &String) -> Result<&Field, WasmJVMError> {
         if let Some(fields) = self.fields() {
             for field in fields {
                 if field.name() == name {
@@ -39,7 +40,7 @@ pub trait WithFields {
             }
         }
 
-        Err(ClassError::FieldNotFound)
+        Err(WasmJVMError::FieldNotFound)
     }
 }
 
@@ -62,13 +63,13 @@ impl WithDescriptor for Field {
 }
 
 impl ClassResolvable<Field> for FieldInfo {
-    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Field, ClassError> {
+    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Field, WasmJVMError> {
         let access_flags = self.access_flags.clone();
         let name_constant = class_file.constant(self.name_index as usize)?;
 
         let name = (match name_constant {
             Constant::Utf8(string) | Constant::String(string) => Ok(string),
-            _ => Err(ClassError::InvalidField),
+            _ => Err(WasmJVMError::FieldInvalid),
         })?;
 
         let descriptor = class_file
@@ -84,8 +85,8 @@ impl ClassResolvable<Field> for FieldInfo {
     }
 }
 
-impl Streamable<FieldInfo> for FieldInfo {
-    fn from_stream(stream: &mut SourceStream) -> Result<FieldInfo, ClassError> {
+impl Streamable<SourceStream, FieldInfo> for FieldInfo {
+    fn from_stream(stream: &mut SourceStream) -> Result<FieldInfo, WasmJVMError> {
         let access_flags = stream.parse()?;
         let name_index = stream.parse()?;
         let descriptor_index = stream.parse()?;

@@ -1,5 +1,6 @@
-use crate::{ClassError, Parsable, SourceStream, Streamable};
+use crate::SourceStream;
 
+use wasmjvm_common::{WasmJVMError, Streamable, Parsable};
 use std::collections::HashSet;
 
 #[repr(u16)]
@@ -37,8 +38,8 @@ impl AccessFlags {
     }
 }
 
-impl Streamable<AccessFlags> for AccessFlags {
-    fn from_stream(stream: &mut SourceStream) -> Result<AccessFlags, ClassError> {
+impl Streamable<SourceStream, AccessFlags> for AccessFlags {
+    fn from_stream(stream: &mut SourceStream) -> Result<AccessFlags, WasmJVMError> {
         let mut types = HashSet::new();
         let flags: u16 = stream.parse()?;
 

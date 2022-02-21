@@ -2,4 +2,7 @@
 members = [
     "class",
     "vm",
+    "wasm",
+    "os",
+    "common"
 ]

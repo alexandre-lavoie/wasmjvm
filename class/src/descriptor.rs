@@ -1,4 +1,6 @@
-use crate::{ClassError, Constant};
+use wasmjvm_common::WasmJVMError;
+
+use crate::{Constant};
 
 use std::{result::Result, slice::Iter};
 
@@ -37,14 +39,14 @@ impl Descriptor {
         &self.output
     }
 
-    pub fn from_constant(constant: &Constant) -> Result<Descriptor, ClassError> {
+    pub fn from_constant(constant: &Constant) -> Result<Descriptor, WasmJVMError> {
         match constant {
             Constant::Utf8(string) | Constant::String(string) => Self::from_string(&string),
-            _ => Err(ClassError::InvalidDescriptor),
+            _ => Err(WasmJVMError::DescriptorInvalid),
         }
     }
 
-    fn parse_type(string: &[u8], mut offset: usize) -> Result<(Type, usize), ClassError> {
+    fn parse_type(string: &[u8], mut offset: usize) -> Result<(Type, usize), WasmJVMError> {
         let tag = string[offset];
         offset += 1;
 
@@ -69,7 +71,7 @@ impl Descriptor {
                 if let Ok(utf8_string) = result {
                     Ok((Type::Single(SingleType::Object(utf8_string)), offset))
                 } else {
-                    Err(ClassError::InvalidString)
+                    Err(WasmJVMError::StringInvalid)
                 }
             },
             b'S' => Ok((Type::Single(SingleType::Short), offset)),
@@ -89,11 +91,11 @@ impl Descriptor {
                     _ => unreachable!(),
                 }
             }
-            _ => Err(ClassError::InvalidType),
+            _ => Err(WasmJVMError::TypeInvalid),
         }
     }
 
-    pub fn from_string(string: &String) -> Result<Descriptor, ClassError> {
+    pub fn from_string(string: &String) -> Result<Descriptor, WasmJVMError> {
         let string_bytes = string.as_bytes();
 
         let mut parameters = Vec::new();

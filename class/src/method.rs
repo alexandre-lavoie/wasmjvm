@@ -1,9 +1,10 @@
 use crate::{
-    AccessFlags, Attribute, AttributeInfo, ClassError, ClassFile, ClassResolvable, Descriptor,
-    Parsable, SourceStream, Streamable, WithAccessFlags, WithAttributes, WithDescriptor,
+    AccessFlags, Attribute, AttributeInfo, ClassFile, ClassResolvable, Descriptor, SourceStream,
+    WithAccessFlags, WithAttributes, WithDescriptor,
 };
 
 use std::slice::Iter;
+use wasmjvm_common::{Parsable, Streamable, WasmJVMError};
 
 #[derive(Debug)]
 pub struct MethodInfo {
@@ -24,7 +25,7 @@ pub struct Method {
 pub trait WithMethods {
     fn methods(self: &Self) -> Option<Iter<Method>>;
 
-    fn method(self: &Self, name: &String) -> Result<&Method, ClassError> {
+    fn method(self: &Self, name: &String) -> Result<&Method, WasmJVMError> {
         if let Some(methods) = self.methods() {
             for method in methods {
                 if method.name() == name {
@@ -33,7 +34,7 @@ pub trait WithMethods {
             }
         }
 
-        Err(ClassError::MethodNotFound)
+        Err(WasmJVMError::MethodNotFound)
     }
 }
 
@@ -62,7 +63,7 @@ impl WithDescriptor for Method {
 }
 
 impl ClassResolvable<Method> for MethodInfo {
-    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Method, ClassError> {
+    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Method, WasmJVMError> {
         let access_flags = self.access_flags.clone();
         let name = class_file.constant(self.name_index as usize)?.to_string()?;
         let descriptor = class_file
@@ -78,8 +79,8 @@ impl ClassResolvable<Method> for MethodInfo {
     }
 }
 
-impl Streamable<MethodInfo> for MethodInfo {
-    fn from_stream(stream: &mut SourceStream) -> Result<MethodInfo, ClassError> {
+impl Streamable<SourceStream, MethodInfo> for MethodInfo {
+    fn from_stream(stream: &mut SourceStream) -> Result<MethodInfo, WasmJVMError> {
         let access_flags = stream.parse()?;
         let name_index = stream.parse()?;
         let descriptor_index = stream.parse()?;

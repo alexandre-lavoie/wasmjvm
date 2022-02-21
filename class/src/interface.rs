@@ -1,5 +1,6 @@
-use crate::{ClassError, ClassFile, ClassResolvable, Parsable, SourceStream, Streamable};
+use crate::{ClassFile, ClassResolvable, SourceStream};
 
+use wasmjvm_common::{WasmJVMError, Streamable, Parsable};
 use std::slice::Iter;
 
 #[derive(Debug, Default)]
@@ -21,7 +22,7 @@ impl Interface {
 pub trait WithInterfaces {
     fn interfaces(self: &Self) -> Option<Iter<Interface>>;
 
-    fn interface(self: &Self, name: &String) -> Result<&Interface, ClassError> {
+    fn interface(self: &Self, name: &String) -> Result<&Interface, WasmJVMError> {
         if let Some(interfaces) = self.interfaces() {
             for interface in interfaces {
                 if interface.name() == name {
@@ -30,20 +31,20 @@ pub trait WithInterfaces {
             }
         }
 
-        Err(ClassError::InterfaceNotFound)
+        Err(WasmJVMError::InterfaceNotFound)
     }
 }
 
 impl ClassResolvable<Interface> for InterfaceInfo {
-    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Interface, ClassError> {
+    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Interface, WasmJVMError> {
         let name = class_file.constant(self.name_index as usize)?.to_string()?;
 
         Ok(Interface { name })
     }
 }
 
-impl Streamable<InterfaceInfo> for InterfaceInfo {
-    fn from_stream(stream: &mut SourceStream) -> Result<InterfaceInfo, ClassError> {
+impl Streamable<SourceStream, InterfaceInfo> for InterfaceInfo {
+    fn from_stream(stream: &mut SourceStream) -> Result<InterfaceInfo, WasmJVMError> {
         let name_index = stream.parse()?;
 
         Ok(InterfaceInfo { name_index })

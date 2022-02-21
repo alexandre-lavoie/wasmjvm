@@ -1,10 +1,11 @@
 use crate::{
-    AccessFlags, Attribute, AttributeInfo, ClassError, Constant, ConstantInfo, Field, FieldInfo,
-    Interface, InterfaceInfo, Method, MethodInfo, Parsable, SourceStream, Streamable,
-    WithAttributes, WithFields, WithInterfaces, WithMethods, WithAccessFlags,
+    AccessFlags, Attribute, AttributeInfo, Constant, ConstantInfo, Field, FieldInfo, Interface,
+    InterfaceInfo, Method, MethodInfo, SourceStream, WithAccessFlags, WithAttributes, WithFields,
+    WithInterfaces, WithMethods,
 };
 
 use std::slice::Iter;
+use wasmjvm_common::{Parsable, Streamable, WasmJVMError, FromData};
 
 #[derive(Debug)]
 pub struct ClassFile {
@@ -33,6 +34,11 @@ pub struct Class {
 }
 
 impl Class {
+    pub fn from_string(path: &String) -> Result<Class, WasmJVMError> {
+        let mut stream = SourceStream::from_file(path)?;
+        Self::from_stream(&mut stream)
+    }
+
     pub fn constant(self: &Self, index: usize) -> &Constant {
         &self.constant_pool[index]
     }
@@ -40,7 +46,7 @@ impl Class {
     pub fn access_flags(self: &Self) -> &AccessFlags {
         &self.access_flags
     }
-    
+
     pub fn this_class(self: &Self) -> &String {
         &self.this_class
     }
@@ -59,18 +65,18 @@ impl ClassFile {
         self.major_version
     }
 
-    pub fn constant(self: &Self, index: usize) -> Result<Constant, ClassError> {
+    pub fn constant(self: &Self, index: usize) -> Result<Constant, WasmJVMError> {
         self.constant_pool[index - 1].resolve(self)
     }
 
-    pub fn resolve<T, K: ClassResolvable<T>>(self: &Self, target: &K) -> Result<T, ClassError> {
+    pub fn resolve<T, K: ClassResolvable<T>>(self: &Self, target: &K) -> Result<T, WasmJVMError> {
         target.resolve(self)
     }
 
     pub fn resolve_vec<T, K: ClassResolvable<T>>(
         self: &Self,
         target: &Vec<K>,
-    ) -> Result<Vec<T>, ClassError> {
+    ) -> Result<Vec<T>, WasmJVMError> {
         let mut output: Vec<T> = Vec::with_capacity(target.capacity());
 
         for t in target.iter() {
@@ -80,7 +86,7 @@ impl ClassFile {
         Ok(output)
     }
 
-    pub fn resolve_self(self: &Self) -> Result<Class, ClassError> {
+    pub fn resolve_self(self: &Self) -> Result<Class, WasmJVMError> {
         let mut constant_pool = Vec::with_capacity(self.constant_pool.len());
         for i in 1..(self.constant_pool.len() + 1) {
             constant_pool.push(self.constant(i)?);
@@ -108,21 +114,21 @@ impl ClassFile {
 }
 
 pub trait ClassResolvable<T> {
-    fn resolve(self: &Self, class_file: &ClassFile) -> Result<T, ClassError>;
+    fn resolve(self: &Self, class_file: &ClassFile) -> Result<T, WasmJVMError>;
 }
 
-impl Streamable<Class> for Class {
-    fn from_stream(stream: &mut SourceStream) -> Result<Class, ClassError> {
+impl Streamable<SourceStream, Class> for Class {
+    fn from_stream(stream: &mut SourceStream) -> Result<Class, WasmJVMError> {
         let class_file: ClassFile = stream.parse()?;
         class_file.resolve_self()
     }
 }
 
-impl Streamable<ClassFile> for ClassFile {
-    fn from_stream(stream: &mut SourceStream) -> Result<ClassFile, ClassError> {
+impl Streamable<SourceStream, ClassFile> for ClassFile {
+    fn from_stream(stream: &mut SourceStream) -> Result<ClassFile, WasmJVMError> {
         let magic_number: u32 = stream.parse()?;
         if magic_number != 0xCAFEBABE {
-            return Err(ClassError::BadMagic);
+            return Err(WasmJVMError::BadMagic);
         }
 
         let minor_version = stream.parse()?;
@@ -139,7 +145,7 @@ impl Streamable<ClassFile> for ClassFile {
                     constant_pool.push(cp);
                     constant_pool.push(ConstantInfo::Empty);
                     ci += 2;
-                },
+                }
                 _ => {
                     constant_pool.push(cp);
                     ci += 1;

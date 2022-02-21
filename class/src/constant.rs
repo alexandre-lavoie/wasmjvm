@@ -1,6 +1,6 @@
-use crate::{
-    ClassError, ClassFile, ClassResolvable, Descriptor, Parsable, SourceStream, Streamable,
-};
+use crate::{ClassFile, ClassResolvable, Descriptor, SourceStream};
+
+use wasmjvm_common::{Parsable, Streamable, WasmJVMError};
 
 #[derive(Debug)]
 pub enum ConstantTag {
@@ -22,7 +22,7 @@ pub enum ConstantTag {
 }
 
 impl ConstantTag {
-    fn from_u8(tag: u8) -> Result<ConstantTag, ClassError> {
+    fn from_u8(tag: u8) -> Result<ConstantTag, WasmJVMError> {
         match tag {
             1 => Ok(ConstantTag::Utf8),
             3 => Ok(ConstantTag::Integer),
@@ -38,7 +38,7 @@ impl ConstantTag {
             15 => Ok(ConstantTag::MethodHandle),
             16 => Ok(ConstantTag::MethodType),
             18 => Ok(ConstantTag::InvokeDynamic),
-            _ => Err(ClassError::InvalidConstant(tag)),
+            _ => Err(WasmJVMError::ConstantInvalid),
         }
     }
 }
@@ -132,28 +132,28 @@ pub enum Constant {
 }
 
 impl Constant {
-    pub fn to_descriptor(self: &Self) -> Result<Descriptor, ClassError> {
+    pub fn to_descriptor(self: &Self) -> Result<Descriptor, WasmJVMError> {
         Descriptor::from_constant(self)
     }
 
-    pub fn to_name_descritor(self: &Self) -> Result<(String, Descriptor), ClassError> {
+    pub fn to_name_descritor(self: &Self) -> Result<(String, Descriptor), WasmJVMError> {
         match self {
             Constant::NameAndType { name, descriptor } => Ok((name.clone(), descriptor.clone())),
-            _ => Err(ClassError::InvalidNameDescriptor),
+            _ => Err(WasmJVMError::NameDescriptorInvalid),
         }
     }
 
-    pub fn to_string(self: &Self) -> Result<String, ClassError> {
+    pub fn to_string(self: &Self) -> Result<String, WasmJVMError> {
         match self {
             Constant::Utf8(string) | Constant::String(string) => Ok(string.clone()),
             Constant::Class { name } => Ok(name.clone()),
-            _ => Err(ClassError::NotStringConstant),
+            _ => Err(WasmJVMError::StringInvalid),
         }
     }
 }
 
 impl ClassResolvable<Constant> for ConstantInfo {
-    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Constant, ClassError> {
+    fn resolve(self: &Self, class_file: &ClassFile) -> Result<Constant, WasmJVMError> {
         match self {
             ConstantInfo::Empty => Ok(Constant::Empty),
             ConstantInfo::Utf8(u8_str) => {
@@ -162,7 +162,7 @@ impl ClassResolvable<Constant> for ConstantInfo {
                 if let Ok(string) = result {
                     Ok(Constant::Utf8(string))
                 } else {
-                    Err(ClassError::InvalidString)
+                    Err(WasmJVMError::StringInvalid)
                 }
             }
             ConstantInfo::Integer(b0) => Ok(Constant::Integer(b0.clone() as i32)),
@@ -270,8 +270,8 @@ impl ClassResolvable<Constant> for ConstantInfo {
     }
 }
 
-impl Streamable<ConstantInfo> for ConstantInfo {
-    fn from_stream(stream: &mut SourceStream) -> Result<ConstantInfo, ClassError> {
+impl Streamable<SourceStream, ConstantInfo> for ConstantInfo {
+    fn from_stream(stream: &mut SourceStream) -> Result<ConstantInfo, WasmJVMError> {
         let raw_tag = stream.parse()?;
         let tag = ConstantTag::from_u8(raw_tag)?;
         match tag {
