@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use wasmjvm_class::{
-    Attribute, AttributeBody, SourceStream, WithAccessFlags, WithAttributes, WithMethods,
+    Attribute, AttributeBody, SourceStream, WithAccessFlags, WithAttributes, WithMethods, Class,
 };
 use wasmjvm_common::{FromData, Parsable, Stream, WasmJVMError};
 
@@ -30,22 +30,27 @@ impl VM {
         }
     }
 
-    pub fn load_class_file(self: &mut Self, path: &String) -> Result<(), WasmJVMError> {
+    pub fn load_class_file(self: &mut Self, classfile: Class) -> Result<(), WasmJVMError> {
+        let classname = classfile.this_class().clone();
+
+        if self.main_class.is_none() {
+            self.main_class = Some(classname.clone());
+        }
+
+        if self.classfiles.contains_key(&classname) {
+            return Err(WasmJVMError::ClassInvalid);
+        }
+
+        self.classfiles.insert(classname, classfile);
+
+        Ok(())
+    }
+
+    pub fn load_class_file_path(self: &mut Self, path: &String) -> Result<(), WasmJVMError> {
         let result = wasmjvm_class::Class::from_string(path);
 
         if let Ok(classfile) = result {
-            let classname = classfile.this_class().clone();
-
-            if self.main_class.is_none() {
-                self.main_class = Some(classname.clone());
-            }
-
-            if self.classfiles.contains_key(&classname) {
-                return Err(WasmJVMError::ClassInvalid);
-            }
-
-            self.classfiles.insert(classname, classfile);
-            Ok(())
+            self.load_class_file(classfile)
         } else {
             Err(WasmJVMError::ClassInvalid)
         }

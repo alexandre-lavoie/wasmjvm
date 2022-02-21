@@ -9,6 +9,6 @@ public class OnTheWeb {
     }
 
     public static int main() {
-        return 0;
+        return -1;
     }
 }
