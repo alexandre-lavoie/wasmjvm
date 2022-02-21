@@ -166,11 +166,13 @@ impl ClassResolvable<Constant> for ConstantInfo {
                 }
             }
             ConstantInfo::Integer(b0) => Ok(Constant::Integer(b0.clone() as i32)),
-            ConstantInfo::Float(b0) => todo!(),
+            ConstantInfo::Float(b0) => Ok(Constant::Float(f32::from_bits(b0.clone()))),
             ConstantInfo::Long(b0, b1) => Ok(Constant::Long(
                 ((b0.clone() as u64) << 32) as i64 + b1.clone() as i64,
             )),
-            ConstantInfo::Double(b0, b1) => todo!(),
+            ConstantInfo::Double(b0, b1) => Ok(Constant::Double(f64::from_bits(
+                ((b0.clone() as u64) << 32) | (b1.clone() as u64),
+            ))),
             ConstantInfo::Class { name_index } => {
                 let name = class_file
                     .constant(name_index.clone() as usize)?
