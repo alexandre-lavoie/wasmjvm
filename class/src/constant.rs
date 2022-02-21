@@ -45,6 +45,10 @@ impl ConstantTag {
 #[derive(Debug, Clone)]
 pub enum ConstantInfo {
     Utf8(String),
+    Integer(u32),
+    Float(u32),
+    Long(u32, u32),
+    Double(u32, u32),
     Class {
         name_index: u16,
     },
@@ -65,11 +69,26 @@ pub enum ConstantInfo {
         name_index: u16,
         descriptor_index: u16,
     },
+    MethodHandle {
+        reference_kind: u8,
+        reference_index: u16,
+    },
+    MethodType {
+        descriptor_index: u16,
+    },
+    InvokeDynamic {
+        bootstrap_method_attr_index: u16,
+        name_and_type_index: u16,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum Constant {
     Utf8(String),
+    Integer(u32),
+    Float(u32),
+    Long(u32, u32),
+    Double(u32, u32),
     Class {
         name: String,
     },
@@ -92,6 +111,17 @@ pub enum Constant {
     NameAndType {
         name: String,
         descriptor: Descriptor,
+    },
+    MethodHandle {
+        reference_kind: u8,
+        reference_index: u16,
+    },
+    MethodType {
+        descriptor_index: u16,
+    },
+    InvokeDynamic {
+        bootstrap_method_attr_index: u16,
+        name_and_type_index: u16,
     },
 }
 
@@ -113,6 +143,10 @@ impl ClassResolvable<Constant> for ConstantInfo {
     fn resolve(self: &Self, class_file: &ClassFile) -> Result<Constant, ClassError> {
         match self {
             ConstantInfo::Utf8(string) => Ok(Constant::Utf8(string.clone())),
+            ConstantInfo::Integer(b0) => Ok(Constant::Integer(b0.clone())),
+            ConstantInfo::Float(b0) => Ok(Constant::Float(b0.clone())),
+            ConstantInfo::Long(b0, b1) => Ok(Constant::Long(b0.clone(), b1.clone())),
+            ConstantInfo::Double(b0, b1) => Ok(Constant::Double(b0.clone(), b1.clone())),
             ConstantInfo::Class { name_index } => {
                 let name = class_file
                     .constant(name_index.clone() as usize)?
@@ -175,6 +209,23 @@ impl ClassResolvable<Constant> for ConstantInfo {
                     _ => todo!(),
                 })
             }
+            ConstantInfo::MethodHandle {
+                reference_kind,
+                reference_index,
+            } => Ok(Constant::MethodHandle {
+                reference_kind: reference_kind.clone(),
+                reference_index: reference_index.clone(),
+            }),
+            ConstantInfo::MethodType { descriptor_index } => Ok(Constant::MethodType {
+                descriptor_index: descriptor_index.clone(),
+            }),
+            ConstantInfo::InvokeDynamic {
+                bootstrap_method_attr_index,
+                name_and_type_index,
+            } => Ok(Constant::InvokeDynamic {
+                bootstrap_method_attr_index: bootstrap_method_attr_index.clone(),
+                name_and_type_index: name_and_type_index.clone(),
+            }),
         }
     }
 }
@@ -192,6 +243,25 @@ impl Streamable<ConstantInfo> for ConstantInfo {
                     Ok(ConstantInfo::Utf8(string))
                 } else {
                     Err(ClassError::InvalidString)
+                }
+            }
+            ConstantTag::Integer | ConstantTag::Float => {
+                let bytes = stream.parse()?;
+
+                match tag {
+                    ConstantTag::Integer => Ok(ConstantInfo::Integer(bytes)),
+                    ConstantTag::Float => Ok(ConstantInfo::Float(bytes)),
+                    _ => todo!(),
+                }
+            }
+            ConstantTag::Long | ConstantTag::Double => {
+                let high_bytes = stream.parse()?;
+                let low_bytes = stream.parse()?;
+
+                match tag {
+                    ConstantTag::Long => Ok(ConstantInfo::Long(high_bytes, low_bytes)),
+                    ConstantTag::Double => Ok(ConstantInfo::Double(high_bytes, low_bytes)),
+                    _ => todo!(),
                 }
             }
             ConstantTag::Class => {
@@ -238,7 +308,29 @@ impl Streamable<ConstantInfo> for ConstantInfo {
                     descriptor_index,
                 })
             }
-            _ => todo!(),
+            ConstantTag::MethodHandle => {
+                let reference_kind = stream.parse()?;
+                let reference_index = stream.parse()?;
+
+                Ok(ConstantInfo::MethodHandle {
+                    reference_kind,
+                    reference_index,
+                })
+            }
+            ConstantTag::MethodType => {
+                let descriptor_index = stream.parse()?;
+
+                Ok(ConstantInfo::MethodType { descriptor_index })
+            }
+            ConstantTag::InvokeDynamic => {
+                let bootstrap_method_attr_index = stream.parse()?;
+                let name_and_type_index = stream.parse()?;
+
+                Ok(ConstantInfo::InvokeDynamic {
+                    bootstrap_method_attr_index,
+                    name_and_type_index,
+                })
+            }
         }
     }
 }
