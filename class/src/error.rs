@@ -12,6 +12,7 @@ pub enum ClassError {
     InvalidNameDescriptor,
     InvalidDescriptor,
     InvalidField,
+    InvalidType,
     NotStringConstant,
     MethodNotFound,
     FieldNotFound,

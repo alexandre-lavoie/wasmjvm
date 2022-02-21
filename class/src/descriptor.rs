@@ -48,14 +48,14 @@ impl Descriptor {
         let tag = string[offset];
         offset += 1;
 
-        match tag as char {
-            'B' => Ok((Type::Single(SingleType::Byte), offset)),
-            'C' => Ok((Type::Single(SingleType::Char), offset)),
-            'D' => Ok((Type::Single(SingleType::Double), offset)),
-            'F' => Ok((Type::Single(SingleType::Float), offset)),
-            'I' => Ok((Type::Single(SingleType::Int), offset)),
-            'J' => Ok((Type::Single(SingleType::Long), offset)),
-            'L' => {
+        match tag {
+            b'B' => Ok((Type::Single(SingleType::Byte), offset)),
+            b'C' => Ok((Type::Single(SingleType::Char), offset)),
+            b'D' => Ok((Type::Single(SingleType::Double), offset)),
+            b'F' => Ok((Type::Single(SingleType::Float), offset)),
+            b'I' => Ok((Type::Single(SingleType::Int), offset)),
+            b'J' => Ok((Type::Single(SingleType::Long), offset)),
+            b'L' => {
                 let mut vec_string = Vec::new();
 
                 while string[offset] as char != ';' {
@@ -72,10 +72,10 @@ impl Descriptor {
                     Err(ClassError::InvalidString)
                 }
             },
-            'S' => Ok((Type::Single(SingleType::Short), offset)),
-            'Z' => Ok((Type::Single(SingleType::Boolean), offset)),
-            'V' => Ok((Type::Single(SingleType::Void), offset)),
-            '[' => {
+            b'S' => Ok((Type::Single(SingleType::Short), offset)),
+            b'Z' => Ok((Type::Single(SingleType::Boolean), offset)),
+            b'V' => Ok((Type::Single(SingleType::Void), offset)),
+            b'[' => {
                 let mut array_size: usize = 1;
                 while string[offset] as char == '[' {
                     array_size += 1;
@@ -86,10 +86,10 @@ impl Descriptor {
 
                 match t {
                     Type::Single(single) => Ok((Type::Array(single, array_size), new_offset)),
-                    _ => todo!(),
+                    _ => unreachable!(),
                 }
             }
-            _ => todo!(),
+            _ => Err(ClassError::InvalidType),
         }
     }
 

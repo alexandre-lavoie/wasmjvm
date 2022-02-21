@@ -235,7 +235,7 @@ impl ClassResolvable<Constant> for ConstantInfo {
                         name,
                         descriptor,
                     },
-                    _ => todo!(),
+                    _ => unreachable!(),
                 })
             }
             ConstantInfo::MethodHandle {
@@ -288,7 +288,7 @@ impl Streamable<ConstantInfo> for ConstantInfo {
                 match tag {
                     ConstantTag::Integer => Ok(ConstantInfo::Integer(bytes)),
                     ConstantTag::Float => Ok(ConstantInfo::Float(bytes)),
-                    _ => todo!(),
+                    _ => unreachable!(),
                 }
             }
             ConstantTag::Long | ConstantTag::Double => {
@@ -298,7 +298,7 @@ impl Streamable<ConstantInfo> for ConstantInfo {
                 match tag {
                     ConstantTag::Long => Ok(ConstantInfo::Long(high_bytes, low_bytes)),
                     ConstantTag::Double => Ok(ConstantInfo::Double(high_bytes, low_bytes)),
-                    _ => todo!(),
+                    _ => unreachable!(),
                 }
             }
             ConstantTag::Class => {
@@ -328,7 +328,7 @@ impl Streamable<ConstantInfo> for ConstantInfo {
                         class_index,
                         name_and_type_index,
                     }),
-                    _ => todo!(),
+                    _ => unreachable!(),
                 }
             }
             ConstantTag::NameAndType => {
