@@ -129,7 +129,23 @@ impl Streamable<ClassFile> for ClassFile {
         let major_version = stream.parse()?;
 
         let constant_pool_size: u16 = stream.parse()?;
-        let constant_pool = stream.parse_vec((constant_pool_size as usize) - 1)?;
+        let mut constant_pool = Vec::with_capacity(constant_pool_size as usize);
+        let mut ci = 0usize;
+        while ci < (constant_pool_size as usize - 1usize) {
+            let cp: ConstantInfo = stream.parse()?;
+
+            match cp {
+                ConstantInfo::Long(..) | ConstantInfo::Double(..) => {
+                    constant_pool.push(cp);
+                    constant_pool.push(ConstantInfo::Empty);
+                    ci += 2;
+                },
+                _ => {
+                    constant_pool.push(cp);
+                    ci += 1;
+                }
+            }
+        }
 
         let access_flags = stream.parse()?;
 

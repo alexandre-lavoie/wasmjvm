@@ -40,6 +40,9 @@ pub enum AttributeBody {
     LineNumberTable {
         line_number_table: Vec<LineNumberEntry>,
     },
+    SourceFile {
+        sourcefile: String,
+    },
     User {
         info: Vec<u8>,
     },
@@ -87,6 +90,14 @@ impl ClassResolvable<Attribute> for AttributeInfo {
                 let line_number_table = source.parse_vec(line_number_table_length as usize)?;
 
                 AttributeBody::LineNumberTable { line_number_table }
+            }
+            "SourceFile" => {
+                let sourcefile_index: u16 = source.parse()?;
+                let sourcefile = class_file
+                    .constant(sourcefile_index as usize)?
+                    .to_string()?;
+
+                AttributeBody::SourceFile { sourcefile }
             }
             _ => AttributeBody::User {
                 info: self.info.clone(),

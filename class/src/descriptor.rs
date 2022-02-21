@@ -55,7 +55,23 @@ impl Descriptor {
             'F' => Ok((Type::Single(SingleType::Float), offset)),
             'I' => Ok((Type::Single(SingleType::Int), offset)),
             'J' => Ok((Type::Single(SingleType::Long), offset)),
-            'L' => todo!(),
+            'L' => {
+                let mut vec_string = Vec::new();
+
+                while string[offset] as char != ';' {
+                    vec_string.push(string[offset]);
+                    offset += 1;
+                }
+                offset += 1;
+
+                let result = String::from_utf8(vec_string);
+
+                if let Ok(utf8_string) = result {
+                    Ok((Type::Single(SingleType::Object(utf8_string)), offset))
+                } else {
+                    Err(ClassError::InvalidString)
+                }
+            },
             'S' => Ok((Type::Single(SingleType::Short), offset)),
             'Z' => Ok((Type::Single(SingleType::Boolean), offset)),
             'V' => Ok((Type::Single(SingleType::Void), offset)),

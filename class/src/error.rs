@@ -9,6 +9,7 @@ pub enum ClassError {
     InvalidString,
     UnexpectedConstant(ConstantInfo),
     InvalidConstantConversion(Constant),
+    InvalidNameDescriptor,
     InvalidDescriptor,
     InvalidField,
     NotStringConstant,

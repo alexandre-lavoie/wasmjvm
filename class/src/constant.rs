@@ -4,6 +4,7 @@ use crate::{
 
 #[derive(Debug)]
 pub enum ConstantTag {
+    Empty,
     Utf8,
     Integer,
     Float,
@@ -44,7 +45,8 @@ impl ConstantTag {
 
 #[derive(Debug, Clone)]
 pub enum ConstantInfo {
-    Utf8(String),
+    Empty,
+    Utf8(Vec<u8>),
     Integer(u32),
     Float(u32),
     Long(u32, u32),
@@ -52,7 +54,9 @@ pub enum ConstantInfo {
     Class {
         name_index: u16,
     },
-    String(String),
+    String {
+        string_index: u16,
+    },
     FieldRef {
         class_index: u16,
         name_and_type_index: u16,
@@ -84,11 +88,12 @@ pub enum ConstantInfo {
 
 #[derive(Debug, Clone)]
 pub enum Constant {
+    Empty,
     Utf8(String),
-    Integer(u32),
-    Float(u32),
-    Long(u32, u32),
-    Double(u32, u32),
+    Integer(i32),
+    Float(f32),
+    Long(i64),
+    Double(f64),
     Class {
         name: String,
     },
@@ -117,17 +122,25 @@ pub enum Constant {
         reference_index: u16,
     },
     MethodType {
-        descriptor_index: u16,
+        descriptor: Descriptor,
     },
     InvokeDynamic {
+        name: String,
+        descriptor: Descriptor,
         bootstrap_method_attr_index: u16,
-        name_and_type_index: u16,
     },
 }
 
 impl Constant {
     pub fn to_descriptor(self: &Self) -> Result<Descriptor, ClassError> {
         Descriptor::from_constant(self)
+    }
+
+    pub fn to_name_descritor(self: &Self) -> Result<(String, Descriptor), ClassError> {
+        match self {
+            Constant::NameAndType { name, descriptor } => Ok((name.clone(), descriptor.clone())),
+            _ => Err(ClassError::InvalidNameDescriptor),
+        }
     }
 
     pub fn to_string(self: &Self) -> Result<String, ClassError> {
@@ -142,18 +155,35 @@ impl Constant {
 impl ClassResolvable<Constant> for ConstantInfo {
     fn resolve(self: &Self, class_file: &ClassFile) -> Result<Constant, ClassError> {
         match self {
-            ConstantInfo::Utf8(string) => Ok(Constant::Utf8(string.clone())),
-            ConstantInfo::Integer(b0) => Ok(Constant::Integer(b0.clone())),
-            ConstantInfo::Float(b0) => Ok(Constant::Float(b0.clone())),
-            ConstantInfo::Long(b0, b1) => Ok(Constant::Long(b0.clone(), b1.clone())),
-            ConstantInfo::Double(b0, b1) => Ok(Constant::Double(b0.clone(), b1.clone())),
+            ConstantInfo::Empty => Ok(Constant::Empty),
+            ConstantInfo::Utf8(u8_str) => {
+                let result = String::from_utf8(u8_str.to_vec());
+
+                if let Ok(string) = result {
+                    Ok(Constant::Utf8(string))
+                } else {
+                    Err(ClassError::InvalidString)
+                }
+            }
+            ConstantInfo::Integer(b0) => Ok(Constant::Integer(b0.clone() as i32)),
+            ConstantInfo::Float(b0) => todo!(),
+            ConstantInfo::Long(b0, b1) => Ok(Constant::Long(
+                ((b0.clone() as u64) << 32) as i64 + b1.clone() as i64,
+            )),
+            ConstantInfo::Double(b0, b1) => todo!(),
             ConstantInfo::Class { name_index } => {
                 let name = class_file
                     .constant(name_index.clone() as usize)?
                     .to_string()?;
                 Ok(Constant::Class { name })
             }
-            ConstantInfo::String(string) => Ok(Constant::String(string.clone())),
+            ConstantInfo::String { string_index } => {
+                let string = class_file
+                    .constant(string_index.clone() as usize)?
+                    .to_string()?;
+
+                Ok(Constant::String(string))
+            }
             ConstantInfo::NameAndType {
                 name_index,
                 descriptor_index,
@@ -183,12 +213,9 @@ impl ClassResolvable<Constant> for ConstantInfo {
                     .constant(class_index.clone() as usize)?
                     .to_string()?;
 
-                let name_and_type_constant =
-                    class_file.constant(name_and_type_index.clone() as usize)?;
-                let (name, descriptor) = (match name_and_type_constant {
-                    Constant::NameAndType { name, descriptor } => Ok((name, descriptor)),
-                    _ => Err(ClassError::UnexpectedConstant(self.clone())),
-                })?;
+                let (name, descriptor) = class_file
+                    .constant(name_and_type_index.clone() as usize)?
+                    .to_name_descritor()?;
 
                 Ok(match self {
                     ConstantInfo::MethodRef { .. } => Constant::MethodRef {
@@ -216,16 +243,27 @@ impl ClassResolvable<Constant> for ConstantInfo {
                 reference_kind: reference_kind.clone(),
                 reference_index: reference_index.clone(),
             }),
-            ConstantInfo::MethodType { descriptor_index } => Ok(Constant::MethodType {
-                descriptor_index: descriptor_index.clone(),
-            }),
+            ConstantInfo::MethodType { descriptor_index } => {
+                let descriptor = class_file
+                    .constant(descriptor_index.clone() as usize)?
+                    .to_descriptor()?;
+
+                Ok(Constant::MethodType { descriptor })
+            }
             ConstantInfo::InvokeDynamic {
                 bootstrap_method_attr_index,
                 name_and_type_index,
-            } => Ok(Constant::InvokeDynamic {
-                bootstrap_method_attr_index: bootstrap_method_attr_index.clone(),
-                name_and_type_index: name_and_type_index.clone(),
-            }),
+            } => {
+                let (name, descriptor) = class_file
+                    .constant(name_and_type_index.clone() as usize)?
+                    .to_name_descritor()?;
+
+                Ok(Constant::InvokeDynamic {
+                    name,
+                    descriptor,
+                    bootstrap_method_attr_index: bootstrap_method_attr_index.clone(),
+                })
+            }
         }
     }
 }
@@ -235,15 +273,12 @@ impl Streamable<ConstantInfo> for ConstantInfo {
         let raw_tag = stream.parse()?;
         let tag = ConstantTag::from_u8(raw_tag)?;
         match tag {
+            ConstantTag::Empty => Ok(ConstantInfo::Empty),
             ConstantTag::Utf8 => {
                 let count: u16 = stream.parse()?;
                 let u8_str = stream.parse_vec(count as usize)?;
 
-                if let Ok(string) = String::from_utf8(u8_str) {
-                    Ok(ConstantInfo::Utf8(string))
-                } else {
-                    Err(ClassError::InvalidString)
-                }
+                Ok(ConstantInfo::Utf8(u8_str))
             }
             ConstantTag::Integer | ConstantTag::Float => {
                 let bytes = stream.parse()?;
@@ -270,14 +305,9 @@ impl Streamable<ConstantInfo> for ConstantInfo {
                 Ok(ConstantInfo::Class { name_index })
             }
             ConstantTag::String => {
-                let count: u16 = stream.parse()?;
-                let u8_str = stream.parse_vec(count as usize)?;
+                let string_index: u16 = stream.parse()?;
 
-                if let Ok(string) = String::from_utf8(u8_str) {
-                    Ok(ConstantInfo::String(string))
-                } else {
-                    Err(ClassError::InvalidString)
-                }
+                Ok(ConstantInfo::String { string_index })
             }
             ConstantTag::MethodRef | ConstantTag::FieldRef | ConstantTag::InterfaceMethodRef => {
                 let class_index = stream.parse()?;
