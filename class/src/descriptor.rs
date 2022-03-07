@@ -1,16 +1,16 @@
 use wasmjvm_common::WasmJVMError;
 
-use crate::{Constant};
+use crate::{Constant, MethodRef};
 
 use std::{result::Result, slice::Iter};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Single(SingleType),
     Array(SingleType, usize),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SingleType {
     Byte,
     Char,
@@ -24,13 +24,24 @@ pub enum SingleType {
     Void,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Descriptor {
     parameters: Vec<Type>,
     output: Type,
 }
 
 impl Descriptor {
+    pub fn new(parameters: Vec<Type>, output: Type) -> Self {
+        Self { parameters, output }
+    }
+
+    pub fn void() -> Self {
+        Self {
+            parameters: Vec::new(),
+            output: Type::Single(SingleType::Void),
+        }
+    }
+
     pub fn parameters(self: &Self) -> Iter<Type> {
         self.parameters.iter()
     }
@@ -42,7 +53,9 @@ impl Descriptor {
     pub fn from_constant(constant: &Constant) -> Result<Descriptor, WasmJVMError> {
         match constant {
             Constant::Utf8(string) | Constant::String(string) => Self::from_string(&string),
-            _ => Err(WasmJVMError::DescriptorInvalid),
+            Constant::MethodRef(MethodRef { descriptor, .. }) => Ok(descriptor.clone()),
+            // _ => Err(WasmJVMError::DescriptorInvalid),
+            _ => todo!(),
         }
     }
 
@@ -73,7 +86,7 @@ impl Descriptor {
                 } else {
                     Err(WasmJVMError::StringInvalid)
                 }
-            },
+            }
             b'S' => Ok((Type::Single(SingleType::Short), offset)),
             b'Z' => Ok((Type::Single(SingleType::Boolean), offset)),
             b'V' => Ok((Type::Single(SingleType::Void), offset)),

@@ -10,10 +10,20 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@emotion/react": "^11.8.1",
+    "@emotion/styled": "^11.8.1",
+    "@mui/icons-material": "^5.4.4",
+    "@mui/material": "^5.4.4",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
     "tsconfig-paths-webpack-plugin": "^3.5.2",
-    "wasmjvm": "file:../pkg"
+    "use-file-picker": "^1.4.2",
+    "wasmjvm": "file:./pkg",
+    "wasmjvm_interface": "file:./interface"
   },
   "devDependencies": {
+    "@types/react": "^17.0.39",
+    "@types/react-dom": "^17.0.13",
     "@wasm-tool/wasm-pack-plugin": "^1.6.0",
     "clean-webpack-plugin": "^4.0.0",
     "html-webpack-plugin": "^5.5.0",

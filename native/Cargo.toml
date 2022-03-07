@@ -1,5 +1,5 @@
 [package]
-name = "wasmjvm_vm"
+name = "wasmjvm_native"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,5 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasmjvm_native = { path = "../native", version = "0.1.0" }
 wasmjvm_class = { path = "../class", version = "0.1.0" }
 wasmjvm_common = { path = "../common", version = "0.1.0" }

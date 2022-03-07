@@ -4,5 +4,6 @@ members = [
     "vm",
     "wasm",
     "os",
-    "common"
+    "common",
+    "native"
 ]

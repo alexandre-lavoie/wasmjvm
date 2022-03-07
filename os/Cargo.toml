@@ -7,3 +7,4 @@ edition = "2021"
 wasmjvm_class = { path = "../class", version = "0.1.0" }
 wasmjvm_vm = { path = "../vm", version = "0.1.0" }
 wasmjvm_common = { path = "../common", version = "0.1.0" }
+wasmjvm_native = { path = "../native", version = "0.1.0" }

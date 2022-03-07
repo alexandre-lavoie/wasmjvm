@@ -8,7 +8,7 @@ pub struct InterfaceInfo {
     name_index: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Interface {
     name: String,
 }

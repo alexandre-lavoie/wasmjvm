@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "baseUrl": "..",
-    "moduleResolution": "node"
+    "target": "ES5",
+    "module": "ES6",
+    "jsx": "react-jsx",
+    "moduleResolution": "Node"
   },
-  "include": ["../pkg/*.d.ts"]
+  "include": ["./pkg/*.d.ts"]
 }

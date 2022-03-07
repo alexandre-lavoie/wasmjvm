@@ -86,6 +86,30 @@ pub enum ConstantInfo {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MethodRef {
+    pub class: String,
+    pub name: String,
+    pub descriptor: Descriptor,
+}
+
+impl MethodRef {
+    pub fn string_init() -> Self {
+        MethodRef {
+            class: "java/lang/String".to_string(),
+            name: "<init>".to_string(),
+            descriptor: Descriptor::void(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FieldRef {
+    pub class: String,
+    pub name: String,
+    pub descriptor: Descriptor,
+}
+
 #[derive(Debug, Clone)]
 pub enum Constant {
     Empty,
@@ -98,16 +122,8 @@ pub enum Constant {
         name: String,
     },
     String(String),
-    FieldRef {
-        class: String,
-        name: String,
-        descriptor: Descriptor,
-    },
-    MethodRef {
-        class: String,
-        name: String,
-        descriptor: Descriptor,
-    },
+    FieldRef(FieldRef),
+    MethodRef(MethodRef),
     InterfaceMethodRef {
         class: String,
         name: String,
@@ -220,16 +236,16 @@ impl ClassResolvable<Constant> for ConstantInfo {
                     .to_name_descritor()?;
 
                 Ok(match self {
-                    ConstantInfo::MethodRef { .. } => Constant::MethodRef {
+                    ConstantInfo::MethodRef { .. } => Constant::MethodRef(MethodRef {
                         class,
                         name,
                         descriptor,
-                    },
-                    ConstantInfo::FieldRef { .. } => Constant::FieldRef {
+                    }),
+                    ConstantInfo::FieldRef { .. } => Constant::FieldRef(FieldRef {
                         class,
                         name,
                         descriptor,
-                    },
+                    }),
                     ConstantInfo::InterfaceMethodRef { .. } => Constant::InterfaceMethodRef {
                         class,
                         name,

@@ -130,11 +130,20 @@ name = "wasmjvm_common"
 version = "0.1.0"
 
 [[package]]
+name = "wasmjvm_native"
+version = "0.1.0"
+dependencies = [
+ "wasmjvm_class",
+ "wasmjvm_common",
+]
+
+[[package]]
 name = "wasmjvm_os"
 version = "0.1.0"
 dependencies = [
  "wasmjvm_class",
  "wasmjvm_common",
+ "wasmjvm_native",
  "wasmjvm_vm",
 ]
 
@@ -144,6 +153,7 @@ version = "0.1.0"
 dependencies = [
  "wasmjvm_class",
  "wasmjvm_common",
+ "wasmjvm_native",
 ]
 
 [[package]]
@@ -153,5 +163,6 @@ dependencies = [
  "wasm-bindgen",
  "wasmjvm_class",
  "wasmjvm_common",
+ "wasmjvm_native",
  "wasmjvm_vm",
 ]

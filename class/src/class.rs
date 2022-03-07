@@ -1,11 +1,11 @@
 use crate::{
     AccessFlags, Attribute, AttributeInfo, Constant, ConstantInfo, Field, FieldInfo, Interface,
-    InterfaceInfo, Method, MethodInfo, SourceStream, WithAccessFlags, WithAttributes, WithFields,
-    WithInterfaces, WithMethods,
+    InterfaceInfo, Method, MethodInfo, MethodRef, SourceStream, WithAccessFlags, WithAttributes,
+    WithDescriptor, WithFields, WithInterfaces, WithMethods,
 };
 
 use std::slice::Iter;
-use wasmjvm_common::{Parsable, Streamable, WasmJVMError, FromData};
+use wasmjvm_common::{FromData, Parsable, Streamable, WasmJVMError};
 
 #[derive(Debug)]
 pub struct ClassFile {
@@ -21,7 +21,7 @@ pub struct ClassFile {
     attributes: Vec<AttributeInfo>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Class {
     constant_pool: Vec<Constant>,
     access_flags: AccessFlags,
@@ -34,13 +34,47 @@ pub struct Class {
 }
 
 impl Class {
-    pub fn from_string(path: &String) -> Result<Class, WasmJVMError> {
+    pub fn from_file(path: &String) -> Result<Class, WasmJVMError> {
         let mut stream = SourceStream::from_file(path)?;
         Self::from_stream(&mut stream)
     }
 
+    pub fn method_index(self: &Self, method_ref: &MethodRef) -> Result<usize, WasmJVMError> {
+        for (index, method) in self.methods().unwrap().enumerate() {
+            if &method_ref.name == method.name() && &method_ref.descriptor == method.descriptor() {
+                return Ok(index);
+            }
+        };
+
+        Err(WasmJVMError::MethodNotFound)
+    }
+
+    pub fn method(self: &Self, index: usize) -> &Method {
+        &self.methods[index]
+    }
+
+    pub fn method_refs(self: &Self, name: &String) -> Result<Vec<MethodRef>, WasmJVMError> {
+        let mut refs = Vec::new();
+
+        for method in self.methods.iter() {
+            if name == method.name() {
+                refs.push(MethodRef {
+                    class: self.this_class().clone(),
+                    name: method.name().clone(),
+                    descriptor: method.descriptor().clone(),
+                });
+            }
+        }
+
+        Ok(refs)
+    }
+
+    pub fn constant_pool(self: &Self) -> &Vec<Constant> {
+        &self.constant_pool
+    }
+
     pub fn constant(self: &Self, index: usize) -> &Constant {
-        &self.constant_pool[index]
+        &self.constant_pool[index - 1]
     }
 
     pub fn access_flags(self: &Self) -> &AccessFlags {
@@ -94,7 +128,11 @@ impl ClassFile {
 
         let access_flags = self.access_flags.clone();
         let this_class = self.constant(self.this_class as usize)?.to_string()?;
-        let super_class = self.constant(self.super_class as usize)?.to_string()?;
+        let super_class = if self.super_class == 0 {
+            String::new()
+        } else {
+            self.constant(self.super_class as usize)?.to_string()?
+        };
         let interfaces = self.resolve_vec(&self.interfaces)?;
         let fields = self.resolve_vec(&self.fields)?;
         let methods = self.resolve_vec(&self.methods)?;

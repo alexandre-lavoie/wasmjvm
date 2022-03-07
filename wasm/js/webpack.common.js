@@ -6,7 +6,9 @@ const TsconfigPathsPlugin = require("tsconfig-paths-webpack-plugin");
 
 module.exports = {
     entry: {
-        wasmjvm: { import: "./src/index.ts", filename: "jvm.js" }
+        app: { import: "./src/index.tsx", filename: "app.[contenthash:8].js", dependOn: "vendor" },
+        interface: { import: "./interface/index.ts", filename: "interface.[contenthash:8].js", dependOn: "vendor" },
+        vendor: ["react", "react-dom", "@emotion/react", "@emotion/styled", "@mui/icons-material", "@mui/material"]
     },
     experiments: {
         asyncWebAssembly: true
@@ -30,15 +32,16 @@ module.exports = {
         new CleanWebpackPlugin(),
         new HtmlWebpackPlugin({
             template: "public/index.html",
-            filename: "index.html",
-            chunks: ["wasmjvm"]
+            filename: "index.html"
         }),
         new WasmPackPlugin({
-            crateDirectory: ".."
+            crateDirectory: "..",
+            outDir: "./js/pkg"
         })
     ],
     output: {
-        filename: "[name].js",
+        library: "jvm",
+        filename: "[name].[contenthash:8].js",
         path: path.resolve(__dirname, "dist")
     },
-};
+}

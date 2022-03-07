@@ -1,132 +1,106 @@
-use std::collections::HashMap;
-
-use wasmjvm_class::{
-    Attribute, AttributeBody, SourceStream, WithAccessFlags, WithAttributes, WithMethods, Class,
+use std::{
+    sync::{Arc, Mutex, MutexGuard},
 };
-use wasmjvm_common::{FromData, Parsable, Stream, WasmJVMError};
 
-use crate::{ObjectRef, OpCode};
+use wasmjvm_class::{Object, ClassInstance, Primitive};
+use wasmjvm_common::WasmJVMError;
+use wasmjvm_native::Global;
 
-#[derive(Default, Debug)]
+use crate::{Thread, ThreadResult};
+
 pub struct VM {
-    classfiles: HashMap<String, wasmjvm_class::Class>,
-    main_class: Option<String>,
+    global: Arc<Mutex<Global>>,
+    threads: Vec<Thread>,
+    loader: Thread,
 }
 
 impl VM {
-    pub fn new() -> VM {
-        VM {
-            ..Default::default()
+    pub fn new() -> Self {
+        let global = Arc::new(Mutex::new(Global::default()));
+        let loader = Thread::new(&global);
+
+        Self {
+            threads: Vec::new(),
+            global,
+            loader,
         }
     }
 
-    pub fn classfile(self: &Self, name: &String) -> Result<&wasmjvm_class::Class, WasmJVMError> {
-        let result = self.classfiles.get(name);
-
-        if let Some(classfile) = result {
-            Ok(classfile)
-        } else {
-            Err(WasmJVMError::ClassNotFound)
-        }
+    pub fn global_mut(self: &mut Self) -> MutexGuard<Global> {
+        self.global.lock().unwrap()
     }
 
-    pub fn load_class_file(self: &mut Self, classfile: Class) -> Result<(), WasmJVMError> {
-        let classname = classfile.this_class().clone();
+    fn new_thread(self: &mut Self) -> usize {
+        let index = self.threads.len();
+        let thread = Thread::new(&self.global);
+        self.threads.push(thread);
+        index
+    }
 
-        if self.main_class.is_none() {
-            self.main_class = Some(classname.clone());
-        }
+    pub fn load_class_file_path(self: &mut Self, path: &String) -> Result<(), WasmJVMError> {
+        let class = wasmjvm_class::Class::from_file(path)?;
 
-        if self.classfiles.contains_key(&classname) {
-            return Err(WasmJVMError::ClassInvalid);
-        }
-
-        self.classfiles.insert(classname, classfile);
+        self.load_class(class)?;
 
         Ok(())
     }
 
-    pub fn load_class_file_path(self: &mut Self, path: &String) -> Result<(), WasmJVMError> {
-        let result = wasmjvm_class::Class::from_string(path);
+    pub fn load_class(self: &mut Self, class: wasmjvm_class::Class) -> Result<(), WasmJVMError> {
+        let class_name = class.this_class().clone();
+        let object = Object::Class(ClassInstance::new(class));
 
-        if let Ok(classfile) = result {
-            self.load_class_file(classfile)
-        } else {
-            Err(WasmJVMError::ClassInvalid)
-        }
-    }
-
-    pub fn run(self: &mut Self) -> Result<Option<ObjectRef>, WasmJVMError> {
-        if let Some(main_class) = self.main_class.clone() {
-            Ok(self.run_method(&main_class, &"main".to_string(), Vec::new(), None)?)
-        } else {
-            Err(WasmJVMError::ClassNotFound)
-        }
-    }
-
-    fn run_method(
-        self: &mut Self,
-        class_name: &String,
-        method_name: &String,
-        mut params: Vec<ObjectRef>,
-        this: Option<ObjectRef>,
-    ) -> Result<Option<ObjectRef>, WasmJVMError> {
-        let method = (if let Some(main_class) = self.classfiles.get(class_name) {
-            if let Ok(method) = main_class.method(method_name) {
-                Ok(method.clone())
-            } else {
-                Err(WasmJVMError::MethodNotFound)
+        match self.global.lock() {
+            Ok(mut global) => {
+                global.alloc(object)?;
             }
-        } else {
-            Err(WasmJVMError::ClassNotFound)
-        })?;
+            Err(_) => return Err(WasmJVMError::ClassInvalid),
+        }
 
-        if method
-            .access_flags()
-            .has_type(&wasmjvm_class::AccessFlagType::Native)
-        {
-            todo!();
-        } else if let Ok(Attribute {
-            body:
-                AttributeBody::Code {
-                    max_stack,
-                    max_locals,
-                    code,
-                    ..
-                },
-            ..
-        }) = method.attribute(&"Code".to_string())
-        {
-            let mut stack: Vec<ObjectRef> = Vec::with_capacity(max_stack.clone() as usize);
-            let mut locals: Vec<ObjectRef> = Vec::with_capacity(max_locals.clone() as usize);
+        self.loader.new_clinit_frame(&class_name);
 
-            locals.append(&mut params);
+        Ok(())
+    }
 
-            let mut source = SourceStream::from_vec(code);
+    pub fn run(self: &mut Self) -> Result<Primitive, WasmJVMError> {
+        let main_index = self.new_thread();
+        self.threads[main_index].init_main()?;
 
-            while !source.is_empty() {
-                let opcode_raw = source.parse()?;
-                let opcode = OpCode::from_u8(opcode_raw)?;
+        let mut result = Primitive::Void;
 
-                match opcode {
-                    OpCode::IConstM1
-                    | OpCode::IConst0
-                    | OpCode::IConst1
-                    | OpCode::IConst2
-                    | OpCode::IConst3
-                    | OpCode::IConst4
-                    | OpCode::IConst5 => {
-                        let value = opcode_raw as i32 - OpCode::IConst0 as i32;
-                        stack.push(ObjectRef::Int(value))
-                    }
-                    OpCode::Ireturn => return Ok(stack.pop()),
-                    _ => todo!("Not Implemented: OpCode {:?}", opcode),
+        let mut index = 0;
+        while self.threads.len() > 0 {
+            match self.loader.tick() {
+                Ok(ThreadResult::Continue) => continue,
+                Ok(ThreadResult::Result(..)) => continue,
+                Ok(ThreadResult::Stop) => {},
+                Err(err) => {
+                    panic!("Error: {:?}", err);
                 }
             }
 
-            Ok(Some(ObjectRef::Void))
-        } else {
-            Err(WasmJVMError::MethodInvalid)
+            let thread = &mut self.threads[index];
+            // thread.unwind();
+
+            match thread.tick() {
+                Ok(ThreadResult::Continue) => {
+                    index = (index + 1) % self.threads.len();
+                }
+                Ok(ThreadResult::Stop) => {
+                    self.threads.remove(index);
+                }
+                Ok(ThreadResult::Result(value)) => {
+                    result = value;
+                    self.threads.remove(index);
+                }
+                Err(err) => {
+                    eprintln!("==== Global ====\n{:?}\n================", self.global);
+                    thread.unwind();
+                    eprintln!("Error: {:?}", err);
+                    self.threads.remove(index);
+                }
+            }
         }
+
+        Ok(result)
     }
 }

@@ -16,5 +16,7 @@ pub enum WasmJVMError {
     BadMagic,
     OpcodeInvalid,
     ClassInvalid,
-    MethodInvalid
+    MethodInvalid,
+    CastInvalid,
+    RuntimeError
 }

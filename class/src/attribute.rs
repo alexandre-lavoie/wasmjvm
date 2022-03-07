@@ -9,13 +9,13 @@ pub struct AttributeInfo {
     info: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Attribute {
     name: String,
     pub body: AttributeBody,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExceptionEntry {
     pub start_pc: u16,
     pub end_pc: u16,
@@ -23,21 +23,24 @@ pub struct ExceptionEntry {
     pub catch_type: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LineNumberEntry {
     pub start_pc: u16,
     pub line_number: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct CodeBody {
+    pub max_stack: u16,
+    pub max_locals: u16,
+    pub code: Vec<u8>,
+    pub exception_table: Vec<ExceptionEntry>,
+    pub attributes: Vec<Attribute>,
+}
+
+#[derive(Debug, Clone)]
 pub enum AttributeBody {
-    Code {
-        max_stack: u16,
-        max_locals: u16,
-        code: Vec<u8>,
-        exception_table: Vec<ExceptionEntry>,
-        attributes: Vec<Attribute>,
-    },
+    Code(CodeBody),
     LineNumberTable {
         line_number_table: Vec<LineNumberEntry>,
     },
@@ -78,13 +81,13 @@ impl ClassResolvable<Attribute> for AttributeInfo {
                     source.parse_vec(attribute_count as usize)?;
                 let attributes = class_file.resolve_vec(&attribute_infos)?;
 
-                AttributeBody::Code {
+                AttributeBody::Code(CodeBody {
                     max_stack,
                     max_locals,
                     code,
                     exception_table,
                     attributes,
-                }
+                })
             }
             "LineNumberTable" => {
                 let line_number_table_length: u16 = source.parse()?;
@@ -169,7 +172,7 @@ pub trait WithAttributes {
 impl WithAttributes for Attribute {
     fn attributes(self: &Self) -> Option<Iter<Attribute>> {
         match &self.body {
-            AttributeBody::Code { attributes, .. } => Some(attributes.iter()),
+            AttributeBody::Code(code) => Some(code.attributes.iter()),
             _ => None,
         }
     }

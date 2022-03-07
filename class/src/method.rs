@@ -14,7 +14,7 @@ pub struct MethodInfo {
     attributes: Vec<AttributeInfo>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Method {
     access_flags: AccessFlags,
     name: String,
