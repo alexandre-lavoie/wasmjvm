@@ -1,10 +1,11 @@
-mod implementation;
 mod binding;
+mod implementation;
 
 use binding::JS;
 use wasm_bindgen::prelude::*;
-use wasmjvm_class::{Class, Primitive, SourceStream};
-use wasmjvm_common::{FromData, Streamable, WasmJVMError, Stream};
+use wasmjvm_class::{Class, SourceStream};
+use wasmjvm_common::{FromData, Stream, Streamable, WasmJVMError};
+use wasmjvm_native::Primitive;
 use wasmjvm_vm::VM;
 
 use crate::implementation::register;
@@ -13,49 +14,81 @@ static mut STATIC_VM: Option<VM> = None;
 
 #[wasm_bindgen]
 pub fn run() -> JsValue {
-    match inner_run() {
-        Ok(object) => match object {
-            Primitive::Boolean(value) => JsValue::from_bool(value),
-            Primitive::Long(value) => JsValue::bigint_from_str(value.to_string().as_str()),
-            _ => JsValue::from_str(format!("{:?}", object).as_str()),
-        },
-        Err(err) => JsValue::from_str(format!("Error: {:?}", err).as_str()),
-    }
+    inner_run()
 }
 
-fn inner_run() -> Result<Primitive, WasmJVMError> {
+fn vm_run(vm: &mut VM) -> Result<Primitive, WasmJVMError> {
+    vm.load_classes()?;
+
+    vm.init_interface()?;
+
+    vm.register_natives()?;
+
+    vm.run()
+}
+
+fn inner_run() -> JsValue {
     unsafe {
         if let Some(vm) = &mut STATIC_VM {
-            vm.run()
+            let result =  vm_run(vm);
+
+            match result {
+                Ok(result) => JsValue::from_str(format!("{:?}", result).as_str()),
+                Err(err) => {
+                    JsValue::from_str(format!("{}\nError: {:?}", vm.unwind().unwrap(), err).as_str())
+                }
+            }
         } else {
-            Err(WasmJVMError::RuntimeError)
+            unreachable!()
         }
     }
 }
 
 #[wasm_bindgen]
-pub fn class_load(file: String) {
-    inner_load(file).unwrap();
+pub fn class_load(file: Vec<u8>) -> JsValue {
+    match inner_load(&file) {
+        Ok(string) => {
+            JsValue::from_str(format!("{}", string).as_str())
+        }
+        Err(err) => {
+            JS::error(format!("{:?}", err));
+            JsValue::null()
+        }
+    }
 }
 
-fn inner_load(class: String) -> Result<(), WasmJVMError> {
-    JS::log(format!("{:?}", class).as_str());
-
-    let stream = &mut SourceStream::from_vec(&class.as_bytes().to_vec());
+fn inner_load(class: &Vec<u8>) -> Result<String, WasmJVMError> {
+    let stream = &mut SourceStream::from_vec(class);
 
     let class = Class::from_stream(stream)?;
+
+    let class_raw = format!("{:?}", class.this_class());
 
     unsafe {
         if STATIC_VM.is_none() {
             let mut vm = VM::new();
-            register(&mut vm.global_mut().native);
+            vm.register_native(Box::new(wasmjvm_native::register))?;
+            vm.register_native(Box::new(register))?;
             STATIC_VM = Some(vm);
         }
 
         if let Some(vm) = &mut STATIC_VM {
             vm.load_class(class)?;
+        } else {
+            unreachable!()
         }
     };
 
-    Ok(())
+    Ok(class_raw)
+}
+
+#[wasm_bindgen]
+pub fn main_class(cls: String) {
+    unsafe {
+        if let Some(vm) = &mut STATIC_VM {
+            vm.main_class_set(&cls).unwrap();
+        } else {
+            unreachable!()
+        }
+    }
 }

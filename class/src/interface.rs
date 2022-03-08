@@ -31,7 +31,7 @@ pub trait WithInterfaces {
             }
         }
 
-        Err(WasmJVMError::InterfaceNotFound)
+        Err(WasmJVMError::ClassNotFoundException(format!("Interface {}", name)))
     }
 }
 

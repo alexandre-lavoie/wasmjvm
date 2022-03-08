@@ -34,7 +34,7 @@ pub trait WithMethods {
             }
         }
 
-        Err(WasmJVMError::MethodNotFound)
+        Err(WasmJVMError::NoSuchMethodError(format!("{}", name)))
     }
 }
 

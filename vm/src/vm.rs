@@ -1,103 +1,187 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use wasmjvm_class::{Object, ClassInstance, Primitive};
+use wasmjvm_class::Class;
 use wasmjvm_common::WasmJVMError;
-use wasmjvm_native::Global;
-
-use crate::{Thread, ThreadResult};
+use wasmjvm_native::{
+    ClassInstance, Global, Loader, NativeInterface, Object, Primitive, RegisterFn, RustObject,
+    Thread, ThreadResult, JAVA_CLASS, JAVA_LOADER, JAVA_NATIVE, JAVA_OBJECT, JAVA_THREAD, NativeFn,
+};
 
 pub struct VM {
-    global: Arc<Mutex<Global>>,
-    threads: Vec<Thread>,
-    loader: Thread,
+    global: Global,
+    classes: Vec<Class>,
+    natives: Vec<RegisterFn>,
+    initialized: bool,
+    main_class: Option<String>,
 }
 
 impl VM {
     pub fn new() -> Self {
-        let global = Arc::new(Mutex::new(Global::default()));
-        let loader = Thread::new(&global);
-
-        Self {
-            threads: Vec::new(),
-            global,
-            loader,
-        }
+        let global = Global::new();
+        Self { global, classes: Vec::new(), natives: Vec::new(), initialized: false, main_class: None }
     }
 
-    pub fn global_mut(self: &mut Self) -> MutexGuard<Global> {
-        self.global.lock().unwrap()
-    }
+    fn load_loader(self: &mut Self, cores: Vec<Class>) -> Result<(), WasmJVMError> {
+        let loader = Loader::new(self.global.clone(), cores)?;
 
-    fn new_thread(self: &mut Self) -> usize {
-        let index = self.threads.len();
-        let thread = Thread::new(&self.global);
-        self.threads.push(thread);
-        index
-    }
-
-    pub fn load_class_file_path(self: &mut Self, path: &String) -> Result<(), WasmJVMError> {
-        let class = wasmjvm_class::Class::from_file(path)?;
-
-        self.load_class(class)?;
+        self.global
+            .new_rust_instance(&JAVA_LOADER.to_string(), RustObject::Loader(loader))?;
 
         Ok(())
     }
 
-    pub fn load_class(self: &mut Self, class: wasmjvm_class::Class) -> Result<(), WasmJVMError> {
-        let class_name = class.this_class().clone();
-        let object = Object::Class(ClassInstance::new(class));
+    pub fn main_class_set(self: &mut Self, class_name: &String) -> Result<(), WasmJVMError> {
+        self.main_class = Some(class_name.clone());
 
-        match self.global.lock() {
-            Ok(mut global) => {
-                global.alloc(object)?;
+        Ok(())
+    }
+
+    pub fn load_class(self: &mut Self, class: Class) -> Result<(), WasmJVMError> {
+        self.classes.push(class);
+
+        Ok(())
+    }
+
+    pub fn load_classes(self: &mut Self) -> Result<(), WasmJVMError> {
+        if self.initialized {
+            return Ok(())
+        }
+
+        let mut cores = Vec::new();
+        let mut posts = Vec::new();
+
+        while self.classes.len() > 0 {
+            if let Some(class) = self.classes.pop() {
+                let this_class = class.this_class().as_str();
+    
+                if this_class == JAVA_OBJECT
+                    || this_class == JAVA_CLASS
+                    || this_class == JAVA_THREAD
+                    || this_class == JAVA_LOADER
+                {
+                    cores.push(class);
+                } else {
+                    posts.push(class);
+                }
+            } else {
+                unreachable!()
             }
-            Err(_) => return Err(WasmJVMError::ClassInvalid),
         }
 
-        self.loader.new_clinit_frame(&class_name);
+        self.load_loader(cores)?;
+
+        let loader = self.global.loader_mut()?;
+        for class in posts {
+            loader.load_class(class)?;
+        }
 
         Ok(())
+    }
+
+    pub fn init_interface(self: &mut Self) -> Result<(), WasmJVMError> {
+        if self.initialized {
+            return Ok(())
+        }
+
+        let native = NativeInterface::new();
+        self.global
+            .new_rust_instance(&JAVA_NATIVE.to_string(), RustObject::Native(native))?;
+
+        Ok(())
+    }
+
+    pub fn register_native(self: &mut Self, r#fn: RegisterFn) -> Result<(), WasmJVMError> {
+        self.natives.push(r#fn);
+        Ok(())
+    }
+
+    pub fn register_natives(self: &mut Self) -> Result<(), WasmJVMError> {
+        while self.natives.len() > 0 {
+            let r#fn = self.natives.pop().unwrap();
+            self.global.register_native(r#fn)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn unwind(self: &mut Self) -> Result<String, WasmJVMError> {
+        let mut buffer = Vec::new();
+
+        for thread_index in self.global.threads().clone().iter() {
+            buffer.push(self.global.thread_mut(*thread_index)?.unwind()?);
+        }
+
+        Ok(buffer.join("\n"))
     }
 
     pub fn run(self: &mut Self) -> Result<Primitive, WasmJVMError> {
-        let main_index = self.new_thread();
-        self.threads[main_index].init_main()?;
+        self.initialized = true;
+
+        if let Some(main_class) = &self.main_class {
+            self.global.main_class_set(&main_class)?;
+        } else {
+            return Err(WasmJVMError::ClassNotFoundException(format!("Main class not set")))
+        }
 
         let mut result = Primitive::Void;
 
-        let mut index = 0;
-        while self.threads.len() > 0 {
-            match self.loader.tick() {
-                Ok(ThreadResult::Continue) => continue,
-                Ok(ThreadResult::Result(..)) => continue,
-                Ok(ThreadResult::Stop) => {},
-                Err(err) => {
-                    panic!("Error: {:?}", err);
+        let mut main_thread = Thread::new(self.global.clone());
+        main_thread.init_main()?;
+        self.global
+            .new_rust_instance(&JAVA_THREAD.to_string(), RustObject::Thread(main_thread))?;
+
+        let (loader_clinit, loader_init) = self.global.loader()?.threads();
+        loop {
+            loop {
+                match self
+                    .global
+                    .thread_tick(loader_clinit)
+                {
+                    Ok(ThreadResult::Result(..)) => break,
+                    Ok(ThreadResult::Stop) => break,
+                    Err(err) => return Err(err),
+                    _ => {}
                 }
             }
 
-            let thread = &mut self.threads[index];
-            // thread.unwind();
+            loop {
+                match self
+                    .global
+                    .thread_tick(loader_init)
+                {
+                    Ok(ThreadResult::Result(..)) => break,
+                    Ok(ThreadResult::Stop) => break,
+                    Err(err) => return Err(err),
+                    _ => {}
+                }
+            }
 
-            match thread.tick() {
-                Ok(ThreadResult::Continue) => {
-                    index = (index + 1) % self.threads.len();
+            let mut stop = true;
+            for thread_index in self.global.threads().clone().iter() {
+                if *thread_index == loader_init || *thread_index == loader_clinit {
+                    continue;
                 }
-                Ok(ThreadResult::Stop) => {
-                    self.threads.remove(index);
+
+                match self
+                    .global
+                    .thread_tick(*thread_index)
+                {
+                    Ok(ThreadResult::Continue) => {
+                        stop = false;
+                    }
+                    Ok(ThreadResult::Stop) => {}
+                    Ok(ThreadResult::Result(value)) => {
+                        result = value;
+                    }
+                    Err(err) => return Err(err),
                 }
-                Ok(ThreadResult::Result(value)) => {
-                    result = value;
-                    self.threads.remove(index);
-                }
-                Err(err) => {
-                    eprintln!("==== Global ====\n{:?}\n================", self.global);
-                    thread.unwind();
-                    eprintln!("Error: {:?}", err);
-                    self.threads.remove(index);
-                }
+            }
+
+            if stop {
+                break;
             }
         }
 

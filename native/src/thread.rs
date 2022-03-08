@@ -1,13 +1,8 @@
-use std::sync::{Arc, Mutex, MutexGuard};
-
+use crate::{Global, Object, OpCode, Primitive, RustObject};
 use wasmjvm_class::{
-    AccessFlagType, Constant, Descriptor, MethodRef, Object, Primitive, WithAccessFlags,
-    WithAttributes,
+    AccessFlagType, Constant, Descriptor, MethodRef, WithAccessFlags, WithAttributes,
 };
 use wasmjvm_common::WasmJVMError;
-use wasmjvm_native::Global;
-
-use crate::OpCode;
 
 #[derive(Debug)]
 pub struct Frame {
@@ -65,8 +60,9 @@ impl Frame {
     }
 }
 
+#[derive(Debug)]
 pub struct Thread {
-    global: Arc<Mutex<Global>>,
+    global: Global,
     frames: Vec<Frame>,
 }
 
@@ -77,10 +73,10 @@ pub enum ThreadResult {
 }
 
 impl Thread {
-    pub fn new(global: &Arc<Mutex<Global>>) -> Self {
+    pub fn new(global: Global) -> Self {
         Self {
             frames: vec![],
-            global: global.clone(),
+            global,
         }
     }
 
@@ -96,11 +92,11 @@ impl Thread {
         this: Option<Primitive>,
         local_variables: Vec<Primitive>,
     ) -> Result<(), WasmJVMError> {
-        let max_locals = if let Ok(global) = self.global.lock() {
-            let (class_index, method_index, descriptor) = global.method(&method_ref)?;
+        let max_locals = {
+            let (class_index, method_index, descriptor) = self.global.method(&method_ref)?;
+            let class = self.global.class_mut(class_index)?;
 
-            let class = global.class(class_index)?;
-            let method = class.metadata.method(method_index);
+            let method = class.metadata().method(method_index);
 
             if method.access_flags().has_type(&AccessFlagType::Native) {
                 descriptor.parameters().len() + 1
@@ -111,11 +107,9 @@ impl Thread {
                 if let wasmjvm_class::AttributeBody::Code(code) = code {
                     code.max_locals as usize
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
             }
-        } else {
-            return Err(WasmJVMError::RuntimeError);
         };
 
         // TODO: Check if passed locals are valid.
@@ -136,7 +130,7 @@ impl Thread {
         let frame = Frame::new(method_ref, locals)?;
 
         self.frames.push(frame);
-
+        
         Ok(())
     }
 
@@ -148,55 +142,61 @@ impl Thread {
         self.new_frame(method_ref, None, local_variables)
     }
 
-    pub fn new_clinit_frame(self: &mut Self, class_name: &String) {
-        let method_ref = MethodRef {
-            class: class_name.to_string(),
-            name: "<clinit>".to_string(),
-            descriptor: Descriptor::void(),
-        };
+    pub fn new_clinit_frame(self: &mut Self, class: usize) -> Result<(), WasmJVMError> {
+        let class = self.global.class_mut(class)?;
+        let class_name = class.metadata().this_class().clone();
+
+        let method_ref = MethodRef::new(
+            class_name.to_string(),
+            "<clinit>".to_string(),
+            Descriptor::void(),
+        );
 
         let _result = self.new_static_frame(method_ref, Vec::new());
-    }
-
-    fn new_main_frame(self: &mut Self) -> Result<(), WasmJVMError> {
-        let mut method_refs = if let Ok(global) = self.global.lock() {
-            let class = global.main_class()?;
-
-            class.metadata.method_refs(&"main".to_string())?
-        } else {
-            return Err(WasmJVMError::RuntimeError);
-        };
-
-        if method_refs.len() != 1 {
-            panic!("Too many main methods.");
-        }
-
-        self.new_static_frame(method_refs.pop().unwrap(), Vec::new())?;
 
         Ok(())
     }
 
-    pub fn unwind(self: &Self) {
+    pub fn new_default_init_frame(self: &mut Self, class: usize, this: usize) -> Result<(), WasmJVMError> {
+        let class = self.global.class(class)?;
+        let class_name = class.metadata().this_class().clone();
+
+        let method_ref = MethodRef::new(
+            class_name,
+            "<init>".to_string(),
+            Descriptor::void(),
+        );
+
+        self.new_frame(method_ref, Some(Primitive::Reference(this)), Vec::new())
+    }
+
+    fn new_main_frame(self: &mut Self) -> Result<(), WasmJVMError> {
+        let class_index = self.global.main_class_index()?;
+        let class = self.global.class(class_index)?;
+
+        let mut method_refs = class.metadata().method_refs(&"main".to_string())?;
+
+        let method_ref = method_refs.pop().unwrap();
+
+        self.new_static_frame(method_ref, Vec::new())?;
+
+        Ok(())
+    }
+
+    pub fn unwind(self: &Self) -> Result<String, WasmJVMError> {
         let frame_count = self.frames.len();
 
         if frame_count == 0 {
-            return;
+            return Ok(format!("===== Empty Thread ======"));
         }
 
         let frame = &self.frames[frame_count - 1];
-        let global = self.global.lock().unwrap();
-        let (class_index, method_index, _) = global.method(&frame.method_ref).unwrap();
+        let (class_index, method_index, _) = self.global.method(&frame.method_ref)?;
+        let class = self.global.class(class_index)?;
 
-        let metadata = {
-            let class = global.class(class_index).unwrap();
-            class.metadata.clone()
-        };
+        let method = class.metadata().method(method_index);
 
-        let method = metadata.method(method_index);
-
-        eprintln!("==== Thread ====\n");
-
-        if !method.access_flags().has_type(&AccessFlagType::Native) {
+        let opcode = if !method.access_flags().has_type(&AccessFlagType::Native) {
             let code = {
                 let attribute = method.attribute(&"Code".to_string()).unwrap();
                 attribute.body.clone()
@@ -204,16 +204,20 @@ impl Thread {
 
             if let wasmjvm_class::AttributeBody::Code(body) = code {
                 let opcode = OpCode::from_u8(body.code[frame.pc()]).unwrap();
-                eprintln!("OpCode: {:?}\n", opcode);
+                format!("OpCode: {:?}\n", opcode)
+            } else {
+                format!("Invalid\n")
             }
         } else {
-            eprintln!("Native\n");
-        }
+            format!("Native\n")
+        };
 
-        for frame in self.frames.iter().rev() {
-            eprintln!("{:?}\n", frame);
-        }
-        eprintln!("================");
+        let frames: Vec<String> = self.frames.iter().rev().map(|frame| format!("{:?}", frame)).collect();
+        let frames: String = frames.join("\n");
+
+        let message = format!("===== Thread ======\n{}\n{}\n================", opcode, frames);
+
+        Ok(message)
     }
 
     pub fn tick(self: &mut Self) -> Result<ThreadResult, WasmJVMError> {
@@ -228,51 +232,45 @@ impl Thread {
         let mut out_frames: Vec<(MethodRef, Option<Primitive>, Vec<Primitive>)> = Vec::new();
         let mut out_return: Option<Primitive> = None;
 
-        if let Ok(mut global) = self.global.lock() {
-            let (class_index, method_index, descriptor) = global.method(&frame.method_ref)?;
+        let (class_index, method_index, descriptor) = self.global.method(&frame.method_ref)?;
+        let class = self.global.class(class_index)?;
 
-            let metadata = {
-                let class = global.class(class_index)?;
-                class.metadata.clone()
+        let method = class.metadata().method(method_index);
+
+        if method.access_flags().has_type(&AccessFlagType::Native) {
+            let result = self.global.native_invoke(&frame.method_ref, variables)?;
+            out_return = Some(result.into_type(descriptor.output())?);
+        } else {
+            let code = {
+                let attribute = method.attribute(&"Code".to_string())?;
+                attribute.body.clone()
             };
 
-            let method = metadata.method(method_index);
+            if let wasmjvm_class::AttributeBody::Code(body) = code {
+                let (pc, stack, locals) = frame.pc_stack_locals_mut();
 
-            if method.access_flags().has_type(&AccessFlagType::Native) {
-                let (env, result) = global.invoke(&frame.method_ref, variables)?;
-                out_return = Some(result.into_type(descriptor.output())?);
+                let (mut new_frames, r#return, offset) = Self::code_tick(
+                    &mut self.global.clone(),
+                    pc,
+                    &body.code,
+                    stack,
+                    locals,
+                    class.metadata(),
+                )?;
 
-                for (instance, method) in env.instances() {
-                    out_frames.push((method.clone(), Some(Primitive::Reference(*instance)), Vec::new()))
+                out_frames.append(&mut new_frames);
+                if let Some(r#return) = r#return {
+                    out_return = Some(r#return.into_type(descriptor.output())?);
+                }
+
+                if offset >= 0 {
+                    *pc += offset as usize;
+                } else {
+                    *pc = (*pc as isize + offset) as usize;
                 }
             } else {
-                let code = {
-                    let attribute = method.attribute(&"Code".to_string())?;
-                    attribute.body.clone()
-                };
-
-                if let wasmjvm_class::AttributeBody::Code(body) = code {
-                    let (pc, stack, locals) = frame.pc_stack_locals_mut();
-
-                    let (mut new_frames, r#return, offset) =
-                        Self::code_tick(global, pc, &body.code, stack, locals, &metadata)?;
-
-                    out_frames.append(&mut new_frames);
-                    if let Some(r#return) = r#return {
-                        out_return = Some(r#return.into_type(descriptor.output())?);
-                    }
-
-                    if offset >= 0 {
-                        *pc += offset as usize;
-                    } else {
-                        *pc = (*pc as isize + offset) as usize;
-                    }
-                } else {
-                    return Err(WasmJVMError::MethodInvalid);
-                }
+                return Err(WasmJVMError::TODO);
             }
-        } else {
-            return Err(WasmJVMError::RuntimeError);
         }
 
         if let Some(r#return) = out_return {
@@ -308,7 +306,7 @@ impl Thread {
     }
 
     fn code_tick(
-        mut global: MutexGuard<Global>,
+        global: &mut Global,
         pc: &mut usize,
         code: &Vec<u8>,
         stack: &mut Vec<Primitive>,
@@ -390,18 +388,15 @@ impl Thread {
 
                 match constant {
                     Constant::String(value) => {
-                        let string_ref = global.new_string(value.to_string())?;
-
-                        let init_ref = MethodRef::string_init();
+                        let string_ref = global.new_java_string(value.clone())?;
 
                         let reference = Primitive::Reference(string_ref);
 
                         stack.push(reference.clone());
-
-                        frames.push((init_ref, Some(reference), Vec::new()))
                     }
                     _ => {
                         let primitive = Primitive::from(constant.clone());
+
                         stack.push(primitive);
                     }
                 }
@@ -508,10 +503,10 @@ impl Thread {
             | OpCode::SAload => {
                 let index = stack.pop().unwrap().into_int()?;
                 let reference = stack.pop().unwrap();
-                let object = global.reference_mut(&reference)?;
+                let object = global.reference_p(&reference)?;
 
-                match (object, index) {
-                    (Object::Array(array), Primitive::Int(index)) => {
+                match (object.inner(), index) {
+                    (RustObject::Array(array), Primitive::Int(index)) => {
                         let value = array[index as usize].clone();
 
                         match opcode {
@@ -625,14 +620,8 @@ impl Thread {
                 let value = stack.pop().unwrap();
                 let index = stack.pop().unwrap().into_int()?;
                 let reference = stack.pop().unwrap();
-                let object = global.reference_mut(&reference)?;
 
-                match (object, index, value) {
-                    (Object::Array(array), Primitive::Int(index), value) => {
-                        array[index as usize] = value;
-                    }
-                    _ => unreachable!(),
-                }
+                global.array_set(reference, index, value)?;
 
                 1
             }
@@ -870,7 +859,7 @@ impl Thread {
                 if let Primitive::Int(raw) = local.into_int()? {
                     *local = Primitive::Int(raw + r#const as i32);
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
 
                 3
@@ -978,7 +967,7 @@ impl Thread {
                 let int = if let Primitive::Int(value) = value {
                     value
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 };
 
                 // TODO: Check if correct.
@@ -1045,7 +1034,7 @@ impl Thread {
                             3
                         }
                     } else {
-                        return Err(WasmJVMError::RuntimeError);
+                        return Err(WasmJVMError::TODO);
                     };
 
                 offset
@@ -1098,7 +1087,7 @@ impl Thread {
 
                     stack.push(field);
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
 
                 3
@@ -1111,13 +1100,11 @@ impl Thread {
                 let field_ref = metadata.constant(index);
 
                 if let Constant::FieldRef(field_ref) = field_ref {
-                    let field = global.static_field_mut(field_ref)?;
-
                     let value = stack.pop().unwrap();
 
-                    *field = value;
+                    global.static_field_set(field_ref, value)?;
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
 
                 3
@@ -1129,18 +1116,18 @@ impl Thread {
 
                 let field_ref = metadata.constant(index);
                 let reference = stack.pop().unwrap();
-                let object = global.reference_mut(&reference)?;
+                let object = global.reference_p(&reference)?;
 
                 if let Constant::FieldRef(field_ref) = field_ref {
-                    if let Object::Instance(instance) = object {
-                        let field = instance.fields.get(&field_ref.name).unwrap().clone();
+                    let field = object.fields.get(&field_ref.name);
 
-                        stack.push(field);
+                    if let Some(field) = field {
+                        stack.push(field.clone());
                     } else {
-                        todo!("{:?}", object);
+                        return Err(WasmJVMError::TODO);
                     }
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
 
                 3
@@ -1152,17 +1139,12 @@ impl Thread {
 
                 let field_ref = metadata.constant(index);
                 let value = stack.pop().unwrap();
-                let objectref = stack.pop().unwrap();
-                let object = global.reference_mut(&objectref)?;
+                let object_ref = stack.pop().unwrap();
 
                 if let Constant::FieldRef(field_ref) = field_ref {
-                    if let Object::Instance(instance) = object {
-                        instance.fields.insert(field_ref.name.to_string(), value);
-                    } else {
-                        return Err(WasmJVMError::RuntimeError);
-                    }
+                    global.field_set(object_ref, field_ref, value)?;
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
 
                 3
@@ -1229,10 +1211,10 @@ impl Thread {
                 let size = stack.pop().unwrap().into_int()?;
 
                 if let Primitive::Int(size) = size {
-                    let index = global.alloc(Object::new_empty_array(size as usize)?)?;
+                    let index = global.new_object(Object::new_empty_array(size as usize)?)?;
                     stack.push(Primitive::Reference(index));
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
 
                 2
@@ -1243,10 +1225,10 @@ impl Thread {
                 let size = stack.pop().unwrap().into_int()?;
 
                 if let Primitive::Int(size) = size {
-                    let index = global.alloc(Object::new_empty_array(size as usize)?)?;
+                    let index = global.new_object(Object::new_empty_array(size as usize)?)?;
                     stack.push(Primitive::Reference(index));
                 } else {
-                    return Err(WasmJVMError::RuntimeError);
+                    return Err(WasmJVMError::TODO);
                 }
 
                 todo!();
@@ -1255,12 +1237,12 @@ impl Thread {
             }
             OpCode::ArrayLength => {
                 let arrayref = stack.pop().unwrap();
-                let array = global.reference(&arrayref)?;
+                let object = global.reference_p(&arrayref)?;
 
-                if let Object::Array(raw) = array {
+                if let RustObject::Array(raw) = object.inner() {
                     stack.push(Primitive::Int(raw.len() as i32));
                 } else {
-                    panic!("Not an array.");
+                    return Err(WasmJVMError::TODO);
                 }
 
                 1

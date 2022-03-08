@@ -1,14 +1,16 @@
 package java.lang;
 
 public class Object {
-    private static long count = 1;
-    private long id = 1;
+    private static long count = 0;
+    private long address;
 
     public Object() {
-        this.id = count++;
+        this.address = count++;
     }
 
-    public long getId() {
-        return this.id;
+    public String toString() {
+        return this.getClass().getName().append(" (").append(new String(this.address)).append(")");
     }
+
+    public native Class getClass();
 }

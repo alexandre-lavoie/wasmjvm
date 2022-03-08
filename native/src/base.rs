@@ -1,215 +1,538 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex}, ops::RangeBounds,
+};
 
-use wasmjvm_class::{ClassInstance, Constant, Descriptor, MethodRef, Object, Primitive, Class, FieldRef};
+use wasmjvm_class::{Class, Descriptor, FieldRef, MethodRef, WithFields, WithAccessFlags, AccessFlagType};
 use wasmjvm_common::WasmJVMError;
 
-use crate::{NativeEnv, NativeFn, NativeInterface};
+use crate::{
+    ClassInstance, Frame, Loader, NativeEnv, NativeFn, NativeInterface, Object, Primitive,
+    RustObject, Thread, ThreadResult, JAVA_CLASS, JAVA_STRING,
+};
 
-#[derive(Debug, Default)]
-pub struct Heap {
-    main_class: Option<usize>,
-    classes: HashMap<String, usize>,
-    objects: Vec<Object>,
+pub type RegisterFn = Box<dyn Fn(&mut NativeInterface)>;
+
+static mut HEAP: Option<Vec<Option<Object>>> = None;
+
+pub struct HeapObject<A> {
+    pub r#mut: usize,
+    pub inner: A
 }
 
-#[derive(Debug, Default)]
+impl<A: std::fmt::Debug> HeapObject<A> {
+    fn new(inner: A) -> Self {
+        Self {
+            r#mut: 0,
+            inner
+        }
+    }
+
+    pub fn get<'a>(self: &'a Self) -> &'a A {
+        &self.inner
+    }
+
+    pub fn get_mut<'a>(self: &'a mut Self) -> &'a mut A {
+        self.r#mut += 1;
+
+        &mut self.inner
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Heap {
+    index: Arc<Mutex<usize>>
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GlobalData {
+    main_class_index: Option<usize>,
+    native_index: Option<usize>,
+    loader_index: Option<usize>,
+    classes: HashMap<String, usize>,
+    threads: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Global {
     heap: Heap,
-    pub native: NativeInterface,
+    data: Arc<Mutex<GlobalData>>,
 }
 
 impl Heap {
-    pub fn get(self: &Self, index: usize) -> &Object {
-        let object = &self.objects[index];
-
-        object
-    }
-
-    pub fn get_mut(self: &mut Self, index: usize) -> &mut Object {
-        let object = &mut self.objects[index];
-
-        object
-    }
-
-    pub fn main_class_name(self: &Self) -> Result<&String, WasmJVMError> {
-        let class_index = self.main_class_index()?;
-        let class = self.class(class_index)?;
-        Ok(class.metadata.this_class())
-    }
-
-    pub fn main_class_index(self: &Self) -> Result<usize, WasmJVMError> {
-        if let Some(index) = self.main_class {
-            Ok(index)
-        } else {
-            Err(WasmJVMError::ClassNotFound)
+    pub fn get(self: &Self, index: usize) -> Result<&Object, WasmJVMError> {
+        unsafe {
+            if let Some(heap) = &HEAP {
+                if let Some(value) = heap.get(index) {
+                    if let Some(value) = value.as_ref() {
+                        return Ok(value);
+                    }
+                }
+            }
         }
+
+        Err(WasmJVMError::TODO)
     }
 
-    pub fn class_index(self: &Self, name: &String) -> usize {
-        if let Some(index) = self.classes.get(name) {
-            *index
-        } else {
-            panic!("Unable to load class {}", name)
+    fn get_mut(self: &Self, index: usize) -> Result<&mut Object, WasmJVMError> {
+        unsafe {
+            if let Some(heap) = &mut HEAP {
+                if let Some(value) = heap.get_mut(index) {
+                    if let Some(value) = value.as_mut() {
+                        return Ok(value);
+                    }
+                }
+            }
         }
+
+        Err(WasmJVMError::TODO)
     }
 
-    pub fn class(self: &Self, index: usize) -> Result<&ClassInstance, WasmJVMError> {
-        let class = &self.objects[index];
-        match class {
-            Object::Class(class) => Ok(class),
-            _ => Err(WasmJVMError::ClassNotFound),
+    pub fn index(self: &Self) -> usize {
+        unsafe {
+            if let Some(heap) = &HEAP {
+                if let Ok(index) = self.index.lock() {
+                    if *index >= heap.len() {
+                        panic!("Out of heap")
+                    }
+
+                    *index
+                } else {
+                    unreachable!();
+                }
+            } else {
+                0
+            }
         }
-    }
-
-    pub fn class_mut(self: &mut Self, index: usize) -> Result<&mut ClassInstance, WasmJVMError> {
-        let class = &mut self.objects[index];
-        match class {
-            Object::Class(class) => Ok(class),
-            _ => Err(WasmJVMError::ClassNotFound),
-        }
-    }
-
-    pub fn main_class(self: &Self) -> Result<&ClassInstance, WasmJVMError> {
-        let main_class_index = self.main_class_index()?;
-        self.class(main_class_index)
     }
 
     pub fn alloc(self: &mut Self, object: Object) -> Result<usize, WasmJVMError> {
-        let index = self.objects.len();
+        unsafe {
+            if HEAP.is_none() {
+                let mut heap: Vec<Option<Object>> = Vec::with_capacity(1024);
 
-        if let Object::Class(class) = &object {
-            if self.main_class == None {
-                self.main_class = Some(index);
+                for i in 0..heap.capacity() {
+                    heap.push(None);
+                }
+
+                HEAP = Some(heap)
+            }
+        }
+
+        let index = if let Ok(mut index) = self.index.lock() {
+            unsafe {
+                if let Some(heap) = &mut HEAP {
+                    heap[*index] = Some(object);
+                }   
             }
 
-            // TODO: Check if duplicate insert.
-            self.classes
-                .insert(class.metadata.this_class().clone(), index);
-        }
+            *index += 1;
 
-        self.objects.push(object);
+            *index - 1
+        } else {
+            unreachable!();
+        };
 
         Ok(index)
-    }
-
-    pub fn reference(self: &Self, reference: &Primitive) -> Result<&Object, WasmJVMError> {
-        match reference {
-            Primitive::Reference(index) => Ok(self.get(*index)),
-            _ => unreachable!("{:?}", reference),
-        }
-    }
-
-    pub fn reference_mut(
-        self: &mut Self,
-        reference: &Primitive,
-    ) -> Result<&mut Object, WasmJVMError> {
-        match reference {
-            Primitive::Reference(index) => Ok(self.get_mut(*index)),
-            _ => panic!("Expected reference but got {:?}", reference),
-        }
-    }
-
-    pub fn new_instance(self: &mut Self, class: &String) -> Result<usize, WasmJVMError> {
-        let class_index = self.class_index(class);
-        let metadata = &self.class(class_index)?.metadata;
-
-        let object = Object::new_instance(class_index, metadata)?;
-
-        self.alloc(object)
-    }
-
-    pub fn new_string(self: &mut Self, string: String) -> Result<usize, WasmJVMError> {
-        let string_ref = self.new_instance(&"java/lang/String".to_string())?;
-        let object = self.reference_mut(&Primitive::Reference(string_ref))?;
-
-        if let Object::Instance(instance) = object {
-            instance.fields.insert("<raw>".to_string(), Primitive::String(string));
-        }
-
-        Ok(string_ref)
     }
 }
 
 impl Global {
-    pub fn main_class(self: &Self) -> Result<&ClassInstance, WasmJVMError> {
-        self.heap.main_class()
+    pub fn new() -> Global {
+        Global {
+            ..Default::default()
+        }
     }
 
-    pub fn register(self: &mut Self, method_ref: MethodRef, r#fn: NativeFn) {
-        self.native.register(method_ref, r#fn)
+    pub fn index(self: &Self) -> usize {
+        self.heap.index()
     }
 
-    pub fn invoke(
+    pub fn native_index(self: &Self) -> Result<usize, WasmJVMError> {
+        if let Ok(data) = self.data.lock() {
+            if let Some(native_index) = data.native_index.clone() {
+                Ok(native_index)
+            } else {
+                Err(WasmJVMError::TODO)
+            }
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn native(self: &Self) -> Result<&NativeInterface, WasmJVMError> {
+        let object = self.reference(self.native_index()?)?;
+
+        if let RustObject::Native(native) = object.inner() {
+            Ok(native)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn native_mut(self: &mut Self) -> Result<&mut NativeInterface, WasmJVMError> {
+        let object = self.reference_mut(self.native_index()?)?;
+
+        if let RustObject::Native(native) = object.inner_mut() {
+            Ok(native)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn register_native(self: &mut Self, r#fn: RegisterFn) -> Result<(), WasmJVMError> {
+        r#fn(self.native_mut()?);
+
+        Ok(())
+    }
+
+    pub fn class(self: &Self, index: usize) -> Result<&ClassInstance, WasmJVMError> {
+        let object = self.reference(index)?;
+
+        if let RustObject::Class(class) = object.inner() {
+            Ok(class)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn class_mut(self: &mut Self, index: usize) -> Result<&mut ClassInstance, WasmJVMError> {
+        let object = self.reference_mut(index)?;
+
+        if let RustObject::Class(class) = object.inner_mut() {
+            Ok(class)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    fn loader_index(self: &Self) -> Result<usize, WasmJVMError> {
+        if let Ok(data) = self.data.lock() {
+            if let Some(loader_index) = data.loader_index.clone() {
+                Ok(loader_index)
+            } else {
+                Err(WasmJVMError::TODO)
+            }
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn loader(self: &Self) -> Result<&Loader, WasmJVMError> {
+        let object = self.reference(self.loader_index()?)?;
+
+        if let RustObject::Loader(loader) = object.inner() {
+            Ok(loader)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn loader_mut(self: &mut Self) -> Result<&mut Loader, WasmJVMError> {
+        let object = self.reference_mut(self.loader_index()?)?;
+
+        if let RustObject::Loader(loader) = object.inner_mut() {
+            Ok(loader)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn thread_tick(
+        self: &mut Self,
+        thread_ref: usize,
+    ) -> Result<ThreadResult, WasmJVMError> {
+        let object_mut = self.reference_mut(thread_ref)?;
+    
+        if let RustObject::Thread(thread) = object_mut.inner_mut() {
+            thread.tick()
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn threads(self: &mut Self) -> Vec<usize> {
+        if let Ok(data) = self.data.lock() {
+            data.threads.clone()
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn native_register(
+        self: &mut Self,
+        method_ref: MethodRef,
+        r#fn: NativeFn,
+    ) -> Result<(), WasmJVMError> {
+        let native_index = if let Ok(data) = self.data.lock() {
+            if let Some(native_index) = data.native_index {
+                native_index
+            } else {
+                return Err(WasmJVMError::TODO);
+            }
+        } else {
+            return Err(WasmJVMError::TODO);
+        };
+
+        let object_mut = self.heap.get_mut(native_index)?;
+        if let RustObject::Native(native) = object_mut.inner_mut() {
+            native.register(method_ref, r#fn)?;
+        } else {
+            return Err(WasmJVMError::TODO);
+        }
+
+        Ok(())
+    }
+
+    pub fn native_invoke(
         self: &mut Self,
         method_ref: &MethodRef,
         variables: Vec<Primitive>,
-    ) -> Result<(NativeEnv, Primitive), WasmJVMError> {
-        let mut env = NativeEnv::new(&mut self.heap, variables);
-        let result = self.native.invoke(method_ref, &mut env)?;
-        Ok((env, result))
+    ) -> Result<Primitive, WasmJVMError> {
+        let method = self.native_mut()?.method(method_ref)?;
+        let mut env = NativeEnv::new(self.clone(), variables);
+        Ok(method.invoke(&mut env))
     }
 
-    pub fn alloc(self: &mut Self, object: Object) -> Result<usize, WasmJVMError> {
-        self.heap.alloc(object)
+    pub fn reference_p(self: &Self, reference: &Primitive) -> Result<&Object, WasmJVMError> {
+        if let Primitive::Reference(index) = reference {
+            self.reference(*index)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
     }
 
-    pub fn reference(self: &Self, reference: &Primitive) -> Result<&Object, WasmJVMError> {
-        self.heap.reference(reference)
+    pub fn reference(self: &Self, reference: usize) -> Result<&Object, WasmJVMError> {
+        self.heap.get(reference)
+    }
+
+    pub fn reference_p_mut(self: &mut Self, reference: &Primitive) -> Result<&mut Object, WasmJVMError> {
+        if let Primitive::Reference(index) = reference {
+            self.reference_mut(*index)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
     }
 
     pub fn reference_mut(
         self: &mut Self,
-        reference: &Primitive,
+        reference: usize,
     ) -> Result<&mut Object, WasmJVMError> {
-        self.heap.reference_mut(reference)
+        self.heap.get_mut(reference)
     }
 
-    pub fn static_field(self: &Self, field_ref: &FieldRef) -> Result<&Primitive, WasmJVMError> {
-        let class = self.class_index(&field_ref.class);
-        let class = self.heap.class(class)?;
+    pub fn thread_mut(self: &mut Self, index: usize) -> Result<&mut Thread, WasmJVMError> {
+        let object = self.reference_mut(index)?;
 
-        Ok(class.statics.get(&field_ref.name).unwrap())
+        if let RustObject::Thread(thread) = object.inner_mut() {
+            Ok(thread)
+        } else {
+            Err(WasmJVMError::TODO)
+        }
     }
 
-    pub fn static_field_mut(
+    pub fn array_set(
+        self: &mut Self,
+        reference: Primitive,
+        index: Primitive,
+        value: Primitive,
+    ) -> Result<(), WasmJVMError> {
+        let object = self.reference_p_mut(&reference)?;
+
+        if let (RustObject::Array(array), Primitive::Int(index)) = (object.inner_mut(), index) {
+            array[index as usize] = value;
+
+            return Ok(())
+        }
+
+        Err(WasmJVMError::TODO)
+    }
+
+    pub fn static_field(self: &Self, field_ref: &FieldRef) -> Result<Primitive, WasmJVMError> {
+        let class_ref = self.class_index(&field_ref.class)?;
+
+        if let Some(field) = self.class(class_ref)?.statics.get(&field_ref.name) {
+            Ok(field.clone())
+        } else {
+            Err(WasmJVMError::TODO)
+        }
+    }
+
+    pub fn static_field_set(
         self: &mut Self,
         field_ref: &FieldRef,
-    ) -> Result<&mut Primitive, WasmJVMError> {
-        let class = self.class_index(&field_ref.class);
-        let class = self.heap.class_mut(class)?;
+        value: Primitive,
+    ) -> Result<(), WasmJVMError> {
+        let class_index = self.class_index(&field_ref.class)?;
+        let class = self.class_mut(class_index)?;
 
-        Ok(class.statics.get_mut(&field_ref.name).unwrap())
+        class.statics.insert(field_ref.name.clone(), value);
+
+        Ok(())
+    }
+
+    pub fn field_set(
+        self: &mut Self,
+        this_ref: Primitive,
+        field_ref: &FieldRef,
+        value: Primitive,
+    ) -> Result<(), WasmJVMError> {
+        let object_mut = self.reference_p_mut(&this_ref)?;
+
+        object_mut.fields.insert(field_ref.name.clone(), value);
+
+        Ok(())
+    }
+
+    pub fn resolve_fields(
+        self: &Self,
+        this_ref: usize
+    ) -> Result<Vec<String>, WasmJVMError> {
+        let object = self.reference(this_ref)?;
+
+        let mut fields = Vec::new();
+        let mut class_index = object.class();
+        loop {
+            if let Some(index) = class_index {
+                let class = self.class(index)?;
+
+                fields.append(&mut class.metadata().field_names());
+
+                if let Some(super_name) = class.metadata().super_class() {
+                    class_index = Some(self.class_index(super_name)?);
+                } else {
+                    class_index = None;
+                }
+            } else {
+                break
+            }
+        }
+
+        Ok(fields)
+    }
+
+    pub fn main_class_set(self: &Self, class_name: &String) -> Result<(), WasmJVMError> {
+        let class_ref = self.class_index(class_name)?;
+
+        if let Ok(mut data) = self.data.lock() {
+            data.main_class_index = Some(class_ref);
+
+            return Ok(())
+        }
+
+        Err(WasmJVMError::ClassNotFoundException(format!("Could not find main class {}", class_name)))
     }
 
     pub fn main_class_index(self: &Self) -> Result<usize, WasmJVMError> {
-        self.heap.main_class_index()
+        if let Ok(data) = self.data.lock() {
+            if let Some(index) = data.main_class_index {
+                return Ok(index);
+            }
+        }
+
+        Err(WasmJVMError::ClassNotFoundException(format!("No main class set")))
     }
 
-    pub fn class(self: &Self, index: usize) -> Result<&ClassInstance, WasmJVMError> {
-        self.heap.class(index)
+    pub fn class_index(self: &Self, name: &String) -> Result<usize, WasmJVMError> {
+        if let Ok(data) = self.data.lock() {
+            if let Some(index) = data.classes.get(name) {
+                return Ok(*index);
+            }
+        }
+
+        Err(WasmJVMError::ClassNotFoundException(format!("Could not find class {}", name)))
     }
 
-    pub fn class_index(self: &Self, name: &String) -> usize {
-        self.heap.class_index(name)
+    pub fn default_init(self: &mut Self, index: usize) -> Result<(), WasmJVMError> {
+        let loader_index = self.loader_index()?;
+
+        let object = self.heap.get_mut(loader_index)?;
+
+        if let Some(class) = object.class() {
+            let loader = if let RustObject::Loader(loader) = object.inner_mut() {
+                loader
+            } else {
+                return Err(WasmJVMError::TODO);
+            };
+    
+            loader.default_init(class, index)?;
+    
+            Ok(())
+        } else {
+            Err(WasmJVMError::TODO)
+        }
     }
 
     pub fn method(
         self: &Self,
         method_ref: &MethodRef,
     ) -> Result<(usize, usize, Descriptor), WasmJVMError> {
-        let class_index = self.class_index(&method_ref.class);
-        let class_object = self.class(class_index)?;
-        let method_index = class_object.metadata.method_index(&method_ref)?;
+        let class_index = self.class_index(&method_ref.class)?;
+        let class = self.class(class_index)?;
+
+        let method_index = class.metadata().method_index(&method_ref)?;
         let descriptor = method_ref.descriptor.clone();
 
         Ok((class_index, method_index, descriptor))
     }
 
-    pub fn new_instance(self: &mut Self, class: &String) -> Result<usize, WasmJVMError> {
-        self.heap.new_instance(class)
+    pub fn new_object(self: &mut Self, object: Object) -> Result<usize, WasmJVMError> {
+        if let Ok(mut data) = self.data.lock() {
+            let index = self.heap.index();
+
+            match object.inner() {
+                RustObject::Class(class) => {
+                    // TODO: Check if duplicate insert.
+                    data.classes
+                        .insert(class.metadata().this_class().clone(), index);
+                }
+                RustObject::Loader(loader) => {
+                    if data.loader_index.is_some() {
+                        return Err(WasmJVMError::TODO);
+                    }
+
+                    data.loader_index = Some(index)
+                }
+                RustObject::Native(native) => {
+                    if data.native_index.is_some() {
+                        return Err(WasmJVMError::TODO);
+                    }
+
+                    data.native_index = Some(index)
+                }
+                RustObject::Thread(thread) => data.threads.push(index),
+                _ => {}
+            }
+
+            self.heap.alloc(object)
+        } else {
+            unreachable!()
+        }
     }
 
-    pub fn new_string(self: &mut Self, string: String) -> Result<usize, WasmJVMError> {
-        self.heap.new_string(string)
+    pub fn new_instance(self: &mut Self, class: &String) -> Result<usize, WasmJVMError> {
+        self.new_rust_instance(class, RustObject::Null)
+    }
+
+    pub fn new_rust_instance(
+        self: &mut Self,
+        class: &String,
+        inner: RustObject,
+    ) -> Result<usize, WasmJVMError> {
+        let class_index = self.class_index(class)?;
+        let class = self.class_mut(class_index)?;
+        let fields = self.resolve_fields(class_index)?;
+
+        let object = Object::new(class_index, fields, inner)?;
+
+        self.new_object(object)
+    }
+
+    pub fn new_java_string(self: &mut Self, string: String) -> Result<usize, WasmJVMError> {
+        let index = self.new_rust_instance(&JAVA_STRING.to_string(), RustObject::String(string))?;
+
+        self.default_init(index)?;
+
+        Ok(index)
     }
 }

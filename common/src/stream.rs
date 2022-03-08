@@ -31,7 +31,7 @@ pub trait Parsable<T> {
 impl<T: Stream<u8>> Parsable<u8> for T {
     fn parse(self: &mut Self) -> Result<u8, WasmJVMError> {
         if self.index() >= self.source().len() {
-            return Err(WasmJVMError::OutOfBound);
+            return Err(WasmJVMError::LinkageError(format!("Class out of bound")));
         }
 
         let value = self.source()[self.index()];
@@ -43,7 +43,7 @@ impl<T: Stream<u8>> Parsable<u8> for T {
 impl<T: Stream<u8>> Parsable<u16> for T {
     fn parse(self: &mut Self) -> Result<u16, WasmJVMError> {
         if self.index() + 1 >= self.source().len() {
-            return Err(WasmJVMError::OutOfBound);
+            return Err(WasmJVMError::LinkageError(format!("Class out of bound")));
         }
 
         let value =
@@ -57,7 +57,7 @@ impl<T: Stream<u8>> Parsable<u16> for T {
 impl<T: Stream<u8>> Parsable<u32> for T {
     fn parse(self: &mut Self) -> Result<u32, WasmJVMError> {
         if self.index() + 3 >= self.source().len() {
-            return Err(WasmJVMError::OutOfBound);
+            return Err(WasmJVMError::LinkageError(format!("Class out of bound")));
         }
 
         let value = (self.source()[self.index()] as u32) << 24
@@ -104,6 +104,6 @@ where
             }
         }
 
-        Err(WasmJVMError::FileNotFound)
+        Err(WasmJVMError::LinkageError(format!("File not found {}", path)))
     }
 }

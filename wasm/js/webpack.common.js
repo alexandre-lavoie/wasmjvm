@@ -6,9 +6,7 @@ const TsconfigPathsPlugin = require("tsconfig-paths-webpack-plugin");
 
 module.exports = {
     entry: {
-        app: { import: "./src/index.tsx", filename: "app.[contenthash:8].js", dependOn: "vendor" },
-        interface: { import: "./interface/index.ts", filename: "interface.[contenthash:8].js", dependOn: "vendor" },
-        vendor: ["react", "react-dom", "@emotion/react", "@emotion/styled", "@mui/icons-material", "@mui/material"]
+        app: { import: "./src/index.tsx", filename: "app.[contenthash:8].js" }
     },
     experiments: {
         asyncWebAssembly: true
@@ -43,5 +41,10 @@ module.exports = {
         library: "jvm",
         filename: "[name].[contenthash:8].js",
         path: path.resolve(__dirname, "dist")
+    },
+    optimization: {
+        splitChunks: {
+            chunks: 'all',
+        },
     },
 }

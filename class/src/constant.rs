@@ -38,7 +38,7 @@ impl ConstantTag {
             15 => Ok(ConstantTag::MethodHandle),
             16 => Ok(ConstantTag::MethodType),
             18 => Ok(ConstantTag::InvokeDynamic),
-            _ => Err(WasmJVMError::ConstantInvalid),
+            _ => unreachable!(),
         }
     }
 }
@@ -94,11 +94,11 @@ pub struct MethodRef {
 }
 
 impl MethodRef {
-    pub fn string_init() -> Self {
-        MethodRef {
-            class: "java/lang/String".to_string(),
-            name: "<init>".to_string(),
-            descriptor: Descriptor::void(),
+    pub fn new(class: String, name: String, descriptor: Descriptor) -> Self {
+        Self {
+            class,
+            name,
+            descriptor
         }
     }
 }
@@ -155,7 +155,7 @@ impl Constant {
     pub fn to_name_descritor(self: &Self) -> Result<(String, Descriptor), WasmJVMError> {
         match self {
             Constant::NameAndType { name, descriptor } => Ok((name.clone(), descriptor.clone())),
-            _ => Err(WasmJVMError::NameDescriptorInvalid),
+            _ => Err(WasmJVMError::ClassFormatError(format!("Name descriptor {:?}", self))),
         }
     }
 
@@ -163,7 +163,7 @@ impl Constant {
         match self {
             Constant::Utf8(string) | Constant::String(string) => Ok(string.clone()),
             Constant::Class { name } => Ok(name.clone()),
-            _ => Err(WasmJVMError::StringInvalid),
+            _ => Err(WasmJVMError::ClassFormatError(format!("String convert {:?}", self))),
         }
     }
 }
@@ -178,7 +178,7 @@ impl ClassResolvable<Constant> for ConstantInfo {
                 if let Ok(string) = result {
                     Ok(Constant::Utf8(string))
                 } else {
-                    Err(WasmJVMError::StringInvalid)
+                    Err(WasmJVMError::ClassFormatError(format!("String resolve {:?}", u8_str)))
                 }
             }
             ConstantInfo::Integer(b0) => Ok(Constant::Integer(b0.clone() as i32)),
@@ -236,11 +236,11 @@ impl ClassResolvable<Constant> for ConstantInfo {
                     .to_name_descritor()?;
 
                 Ok(match self {
-                    ConstantInfo::MethodRef { .. } => Constant::MethodRef(MethodRef {
+                    ConstantInfo::MethodRef { .. } => Constant::MethodRef(MethodRef::new(
                         class,
                         name,
                         descriptor,
-                    }),
+                    )),
                     ConstantInfo::FieldRef { .. } => Constant::FieldRef(FieldRef {
                         class,
                         name,
@@ -378,7 +378,8 @@ impl Streamable<SourceStream, ConstantInfo> for ConstantInfo {
                     bootstrap_method_attr_index,
                     name_and_type_index,
                 })
-            }
+            },
+            _ => unreachable!()
         }
     }
 }

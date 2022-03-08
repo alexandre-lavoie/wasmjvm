@@ -40,7 +40,7 @@ public class String extends Object {
     }
 
     public String append(String string) {
-        byte[] left = this.getInternal();
+        byte[] left = this.getBytes();
         byte[] right = string.getBytes();
         byte[] buffer = new byte[left.length + right.length];
 
@@ -52,7 +52,9 @@ public class String extends Object {
             }
         }
 
-        return new String(buffer);
+        String result = new String(buffer);
+
+        return result;
     }
 
     private native byte[] getInternal();

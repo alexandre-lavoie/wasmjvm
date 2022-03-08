@@ -1,149 +1,198 @@
 import * as React from "react";
 
+import * as zip from "@zip.js/zip.js";
 import { useEffect, useState } from "react";
 import { useFilePicker } from "use-file-picker";
 import { asyncLoad } from "./module";
+import Interface from "wasmjvm_interface";
 
-import { useTheme, ThemeProvider, createTheme } from "@mui/material/styles";
-import AppBar from "@mui/material/AppBar";
-import IconButton from "@mui/material/IconButton";
-import Box from "@mui/material/Box";
-import Card from "@mui/material/Card";
-import Accordion from "@mui/material/Accordion";
-import AccordionSummary from "@mui/material/AccordionSummary";
-import AccordionDetails from "@mui/material/AccordionDetails";
-import Grid from "@mui/material/Grid";
-import TextField from "@mui/material/TextField";
-import Typography from "@mui/material/Typography";
+import * as Material from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import Tooltip from "@mui/material/Tooltip";
 import FileUploadIcon from "@mui/icons-material/FileUpload";
 import ClearIcon from "@mui/icons-material/Clear";
-import List from "@mui/material/List";
-import ListItem from "@mui/material/ListItem";
-import ListItemText from "@mui/material/ListItemText";
-import ListItemButton from "@mui/material/ListItemButton";
+import DownloadDoneIcon from '@mui/icons-material/DownloadDone';
 
-const theme = createTheme({
+const theme = Material.createTheme({
     palette: {
         mode: "dark"
     }
 });
 
+interface IClass {
+    path: string,
+    cls: string,
+    main: boolean
+}
+
 export default function App() {
     let [module, setModule] = useState(null);
     let [output, setOutput] = useState("");
-    let [classes, setClasses] = useState([]);
+    let [classes, setClasses] = useState<{[key: string]: IClass}>({});
 
-    let [openFileSelector, { filesContent }] = useFilePicker({
+    let [openFileSelector, { plainFiles }] = useFilePicker({
         accept: "*.*"
     });
 
-    useEffect(() => {
-        if(module) {
-            Object.values(filesContent).forEach(file => {
-                setClasses([...classes, file.name]);
-                module.class_load(file.content);
+    useEffect((async () => {
+        if (module) {
+            let main = null;
+
+            let newClasses = await Promise.all(Object.values(plainFiles).map(async (file) => {
+                let buffer = await file.arrayBuffer();
+                let uint8 = new Uint8Array(buffer);
+
+                if (file.name.endsWith(".class")) {
+                    let result = module.class_load(uint8);
+
+                    let cls = result?.slice(1, result.length - 1);
+
+                    return [{ path: file.name, cls, main: false }];
+                } else if (file.name.endsWith(".jar")) {
+                    let rawReader = new zip.Uint8ArrayReader(uint8);
+                    let zipReader = new zip.ZipReader(rawReader);
+
+                    let entries = await zipReader.getEntries();
+
+                    let data = await Promise.all(entries.map(async entry => {
+                        let fileName = entry.filename;
+
+                        if (fileName.endsWith(".class")) {
+                            let data = await entry.getData(new zip.Uint8ArrayWriter());
+
+                            let result = module.class_load(data);
+
+                            let cls = result?.slice(1, result.length - 1);
+
+                            if(classes[cls]) {
+                                return { ...classes[cls], path: fileName };
+                            } else {
+                                return { path: fileName, cls, main: false };
+                            }
+                        } else if (fileName.endsWith("META-INF/MANIFEST.MF")) {
+                            let data = await entry.getData(new zip.TextWriter());
+
+                            main = /Main-Class:\s*([a-zA-Z0-9]*)/g.exec(data)[1].trim();
+
+                            return null;
+                        } else {
+                            return null;
+                        }
+                    }));
+
+                    return data.filter(data => data != null);
+                } else {
+                    console.log("TODO!");
+
+                    return [];
+                }
+            }));
+
+            let dict = {};
+            newClasses.flat(1).forEach(entry => {
+                dict[entry.cls] = entry;
             });
+
+            if(main) {
+                module.main_class(main);
+                dict[main].main = true;
+            }
+
+            setClasses({...classes, ...dict})
         }
-    }, [filesContent]);
+    }) as any, [plainFiles]);
 
     useEffect((async () => {
         let module = await asyncLoad();
         console.log(module);
         setModule(module);
+        Interface.setOutput = setOutput;
     }) as any, []);
 
-    if(module) {
+    if (module) {
         return (
-            <ThemeProvider theme={theme}>
-                <Grid container direction="column" style={{height: "100vh"}} spacing={2}>
-                    <Grid item xs={2}>
-                        <AppBar style={{padding: "1em"}} position="static" elevation={0}>
-                            <Typography>WasmJVM</Typography>
-                        </AppBar>
-                    </Grid>
-                    <Grid container item xs={10} alignItems="flex-end" spacing={2}>
-                        <Grid item container direction="column" spacing={2} xs={8}>
-                            <Grid item xs={12}>
-                                <Card style={{padding: "1em"}} square>
-                                    <Typography style={{whiteSpace: "pre-line", fontFamily: "Courier New"}}>{output}</Typography>
-                                </Card>
-                            </Grid>
-                            <Grid item>
-                                <TextField style={{width: "100%"}} />
-                            </Grid>
-                        </Grid>
-                        <Grid item xs={4} container direction="column" spacing={2}>
-                            <Grid item container direction="column" spacing={2}>
-                                <Grid item>
-                                    <Accordion elevation={0} variant="outlined" square>
-                                        <AccordionSummary
+            <Material.ThemeProvider theme={theme}>
+                <Material.Grid container direction="column" style={{ height: "100vh" }} spacing={2}>
+                    <Material.Grid item xs={2}>
+                        <Material.AppBar style={{ padding: "1em" }} position="static" elevation={0}>
+                            <Material.Typography>WasmJVM</Material.Typography>
+                        </Material.AppBar>
+                    </Material.Grid>
+                    <Material.Grid container item xs={10} alignItems="flex-end" spacing={2}>
+                        <Material.Grid item container direction="column" spacing={2} xs={8}>
+                            <Material.Grid item xs={12}>
+                                <Material.Card style={{ padding: "1em" }} square>
+                                    <Material.Typography style={{ whiteSpace: "pre-line", fontFamily: "Courier New" }}>{output}</Material.Typography>
+                                </Material.Card>
+                            </Material.Grid>
+                        </Material.Grid>
+                        <Material.Grid item xs={4} container direction="column" spacing={2}>
+                            <Material.Grid item container direction="column" spacing={2}>
+                                <Material.Grid item>
+                                    <Material.Accordion elevation={0} variant="outlined" square>
+                                        <Material.AccordionSummary
                                             expandIcon={<ExpandMoreIcon />}
                                         >
-                                            <Typography>{`Classes - ${classes.length}`}</Typography>
-                                        </AccordionSummary>
-                                        <AccordionDetails>
-                                            <List>
+                                            <Material.Typography>{`Classes - ${Object.values(classes).length}`}</Material.Typography>
+                                        </Material.AccordionSummary>
+                                        <Material.AccordionDetails>
+                                            <Material.List>
                                                 {
-                                                    classes.map((cls, i) => 
-                                                        <ListItem key={i}>
-                                                            <ListItemButton>
-                                                                <ListItemText primary={`${cls}`}/>
-                                                            </ListItemButton>
-                                                        </ListItem>
+                                                    Object.entries(classes).map(([key, cls]) =>
+                                                        <Material.ListItem key={key}>
+                                                            <Material.ListItemButton onClick={() => {
+                                                                let newClasses = {...classes, [key]: {...cls, main: true}};
+
+                                                                module.main_class(cls.cls);
+
+                                                                setClasses(newClasses);
+                                                            }}>
+                                                                <Material.ListItemIcon>
+                                                                    {
+                                                                        (() => {
+                                                                            if (cls.main) {
+                                                                                return (<PlayArrowIcon />);
+                                                                            } else {
+                                                                                return (<DownloadDoneIcon />);
+                                                                            }
+                                                                        })()
+                                                                    }
+                                                                </Material.ListItemIcon>
+                                                                <Material.ListItemText primary={`${cls.cls}`} />
+                                                            </Material.ListItemButton>
+                                                        </Material.ListItem>
                                                     )
                                                 }
-                                            </List>
-                                            <Typography></Typography>
-                                        </AccordionDetails>
-                                    </Accordion>
-                                </Grid>
-                                <Grid item>
-                                    <Accordion elevation={0} variant="outlined" square>
-                                        <AccordionSummary
-                                            expandIcon={<ExpandMoreIcon />}
-                                        >
-                                            <Typography>Threads - 0</Typography>
-                                        </AccordionSummary>
-                                        <AccordionDetails>
-                                            <Typography></Typography>
-                                        </AccordionDetails>
-                                    </Accordion>
-                                </Grid>
-                            </Grid>
-                            <Grid item>
-                                <Card style={{padding: "0.5em"}} square>
-                                    <Grid container spacing={1}>
-                                        <Grid item>
-                                            <Tooltip title="Toggle Play">
-                                                <IconButton>
-                                                    <PlayArrowIcon/> 
-                                                </IconButton>
-                                            </Tooltip>
-                                        </Grid>
-                                        <Grid item>
-                                            <Tooltip title="Upload Class/JAR">
-                                                <IconButton onClick={() => openFileSelector()}>
-                                                    <FileUploadIcon/> 
-                                                </IconButton>
-                                            </Tooltip>
-                                        </Grid>
-                                        <Grid item>
-                                            <Tooltip title="Clear">
-                                                <IconButton onClick={() => setOutput("")}>
-                                                    <ClearIcon/> 
-                                                </IconButton>
-                                            </Tooltip>
-                                        </Grid>
-                                    </Grid>
-                                </Card>
-                            </Grid>
-                        </Grid>
-                    </Grid>
-                </Grid>
-            </ThemeProvider>
+                                            </Material.List>
+                                            <Material.Typography></Material.Typography>
+                                        </Material.AccordionDetails>
+                                    </Material.Accordion>
+                                </Material.Grid>
+                            </Material.Grid>
+                            <Material.Grid item>
+                                <Material.Card style={{ padding: "0.5em" }} square>
+                                    <Material.Grid container spacing={1}>
+                                        <Material.Grid item>
+                                            <Material.Tooltip title="Toggle Play">
+                                                <Material.IconButton onClick={() => console.log(module.run())}>
+                                                    <PlayArrowIcon />
+                                                </Material.IconButton>
+                                            </Material.Tooltip>
+                                        </Material.Grid>
+                                        <Material.Grid item>
+                                            <Material.Tooltip title="Upload Class/JAR">
+                                                <Material.IconButton onClick={() => openFileSelector()}>
+                                                    <FileUploadIcon />
+                                                </Material.IconButton>
+                                            </Material.Tooltip>
+                                        </Material.Grid>
+                                    </Material.Grid>
+                                </Material.Card>
+                            </Material.Grid>
+                        </Material.Grid>
+                    </Material.Grid>
+                </Material.Grid>
+            </Material.ThemeProvider>
         )
     } else {
         return <></>

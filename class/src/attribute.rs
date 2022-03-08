@@ -165,7 +165,7 @@ pub trait WithAttributes {
             }
         }
 
-        Err(WasmJVMError::AttributeNotFound)
+        Err(WasmJVMError::NoSuchFieldError(format!("Attribute {}", name)))
     }
 }
 

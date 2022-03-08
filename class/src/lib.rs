@@ -6,7 +6,6 @@ mod descriptor;
 mod field;
 mod interface;
 mod method;
-mod object;
 mod stream;
 
 pub use access_flag::*;
@@ -17,5 +16,4 @@ pub use descriptor::*;
 pub use field::*;
 pub use interface::*;
 pub use method::*;
-pub use object::*;
 pub use stream::*;

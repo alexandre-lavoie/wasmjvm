@@ -54,8 +54,7 @@ impl Descriptor {
         match constant {
             Constant::Utf8(string) | Constant::String(string) => Self::from_string(&string),
             Constant::MethodRef(MethodRef { descriptor, .. }) => Ok(descriptor.clone()),
-            // _ => Err(WasmJVMError::DescriptorInvalid),
-            _ => todo!(),
+            _ => Err(WasmJVMError::IllegalStateException(format!("Cannot convert {:?} to descriptor", constant)))
         }
     }
 
@@ -79,12 +78,12 @@ impl Descriptor {
                 }
                 offset += 1;
 
-                let result = String::from_utf8(vec_string);
+                let result = String::from_utf8(vec_string.clone());
 
                 if let Ok(utf8_string) = result {
                     Ok((Type::Single(SingleType::Object(utf8_string)), offset))
                 } else {
-                    Err(WasmJVMError::StringInvalid)
+                    Err(WasmJVMError::ClassFormatError(format!("String {:?}", vec_string)))
                 }
             }
             b'S' => Ok((Type::Single(SingleType::Short), offset)),
@@ -104,7 +103,7 @@ impl Descriptor {
                     _ => unreachable!(),
                 }
             }
-            _ => Err(WasmJVMError::TypeInvalid),
+            _ => unreachable!(),
         }
     }
 

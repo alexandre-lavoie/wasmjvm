@@ -1,7 +1,7 @@
 use crate::{
     AccessFlags, Attribute, AttributeInfo, Constant, ConstantInfo, Field, FieldInfo, Interface,
     InterfaceInfo, Method, MethodInfo, MethodRef, SourceStream, WithAccessFlags, WithAttributes,
-    WithDescriptor, WithFields, WithInterfaces, WithMethods,
+    WithDescriptor, WithFields, WithInterfaces, WithMethods, AccessFlagType,
 };
 
 use std::slice::Iter;
@@ -21,12 +21,12 @@ pub struct ClassFile {
     attributes: Vec<AttributeInfo>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Class {
     constant_pool: Vec<Constant>,
     access_flags: AccessFlags,
     this_class: String,
-    super_class: String,
+    super_class: Option<String>,
     interfaces: Vec<Interface>,
     fields: Vec<Field>,
     methods: Vec<Method>,
@@ -44,9 +44,9 @@ impl Class {
             if &method_ref.name == method.name() && &method_ref.descriptor == method.descriptor() {
                 return Ok(index);
             }
-        };
+        }
 
-        Err(WasmJVMError::MethodNotFound)
+        Err(WasmJVMError::NoSuchMethodError(format!("{:?}", method_ref)))
     }
 
     pub fn method(self: &Self, index: usize) -> &Method {
@@ -58,11 +58,11 @@ impl Class {
 
         for method in self.methods.iter() {
             if name == method.name() {
-                refs.push(MethodRef {
-                    class: self.this_class().clone(),
-                    name: method.name().clone(),
-                    descriptor: method.descriptor().clone(),
-                });
+                refs.push(MethodRef::new(
+                    self.this_class().clone(),
+                    method.name().clone(),
+                    method.descriptor().clone(),
+                ));
             }
         }
 
@@ -85,7 +85,7 @@ impl Class {
         &self.this_class
     }
 
-    pub fn super_class(self: &Self) -> &String {
+    pub fn super_class(self: &Self) -> &Option<String> {
         &self.super_class
     }
 }
@@ -129,9 +129,9 @@ impl ClassFile {
         let access_flags = self.access_flags.clone();
         let this_class = self.constant(self.this_class as usize)?.to_string()?;
         let super_class = if self.super_class == 0 {
-            String::new()
+            None
         } else {
-            self.constant(self.super_class as usize)?.to_string()?
+            Some(self.constant(self.super_class as usize)?.to_string()?)
         };
         let interfaces = self.resolve_vec(&self.interfaces)?;
         let fields = self.resolve_vec(&self.fields)?;
@@ -166,7 +166,7 @@ impl Streamable<SourceStream, ClassFile> for ClassFile {
     fn from_stream(stream: &mut SourceStream) -> Result<ClassFile, WasmJVMError> {
         let magic_number: u32 = stream.parse()?;
         if magic_number != 0xCAFEBABE {
-            return Err(WasmJVMError::BadMagic);
+            return Err(WasmJVMError::ClassFormatError(format!("Bad magic {}", magic_number)));
         }
 
         let minor_version = stream.parse()?;

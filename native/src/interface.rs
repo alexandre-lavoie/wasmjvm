@@ -1,15 +1,31 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, sync::{Arc, Mutex}};
 
-use wasmjvm_class::{MethodRef, Object, Primitive, Descriptor};
+use crate::{Object, Primitive, Global, JAVA_STRING, RustObject};
+use wasmjvm_class::MethodRef;
 use wasmjvm_common::WasmJVMError;
-
-use crate::Heap;
 
 pub type NativeFn = Box<dyn Fn(&mut NativeEnv) -> Primitive>;
 
+#[derive(Clone)]
+pub struct NativeMethod {
+    raw: Arc<NativeFn>
+}
+
+impl NativeMethod {
+    fn new(r#fn: NativeFn) -> Self {
+        Self {
+            raw: Arc::new(r#fn)
+        }
+    }
+
+    pub fn invoke(self: &Self, env: &mut NativeEnv) -> Primitive {
+        (self.raw)(env)
+    }
+}
+
 #[derive(Default)]
 pub struct NativeInterface {
-    methods: HashMap<MethodRef, NativeFn>,
+    methods: HashMap<MethodRef, NativeMethod>,
 }
 
 impl Debug for NativeInterface {
@@ -19,64 +35,73 @@ impl Debug for NativeInterface {
 }
 
 impl NativeInterface {
-    pub fn register(self: &mut Self, method_ref: MethodRef, r#fn: NativeFn) {
-        self.methods.insert(method_ref, r#fn);
+    pub fn new() -> Self {
+        Self {
+            methods: HashMap::new()
+        }
     }
 
-    pub fn invoke(
-        self: &mut Self,
-        method_ref: &MethodRef,
-        env: &mut NativeEnv,
-    ) -> Result<Primitive, WasmJVMError> {
+    pub fn register(self: &mut Self, method_ref: MethodRef, r#fn: NativeFn) -> Result<(), WasmJVMError> {
+        if self.methods.contains_key(&method_ref) {
+            return Err(WasmJVMError::TODO);
+        }
+
+        self.methods.insert(method_ref, NativeMethod::new(r#fn));
+
+        Ok(())
+    }
+
+    pub fn method(self: &Self, method_ref: &MethodRef) -> Result<NativeMethod, WasmJVMError> {
         if let Some(method) = self.methods.get(method_ref) {
-            Ok(method(env))
+            Ok(method.clone())
         } else {
-            Err(WasmJVMError::RuntimeError)
+            Err(WasmJVMError::TODO)
         }
     }
 }
 
 #[derive(Debug)]
-pub struct NativeEnv<'a> {
-    heap: &'a mut Heap,
+pub struct NativeEnv {
+    global: Global,
     variables: Vec<Primitive>,
-    instances: Vec<(usize, MethodRef)>
 }
 
-impl<'a> NativeEnv<'a> {
-    pub fn new(heap: &'a mut Heap, variables: Vec<Primitive>) -> Self {
-        Self { heap, variables, instances: Vec::new() }
+impl NativeEnv {
+    pub fn new(global: Global, variables: Vec<Primitive>) -> Self {
+        Self {
+            global,
+            variables,
+        }
+    }
+
+    pub fn global(self: &Self) -> &Global {
+        &self.global
     }
 
     pub fn variables(self: &Self) -> &Vec<Primitive> {
         &self.variables
     }
 
-    pub fn instances(self: &Self) -> &Vec<(usize, MethodRef)> {
-        &self.instances
+    pub fn variables_mut(self: &mut Self) -> &mut Vec<Primitive> {
+        &mut self.variables
     }
 
     pub fn new_string(self: &mut Self, string: String) -> Result<usize, WasmJVMError> {
-        let index = self.heap.new_string(string)?;
-
-        let init_ref = MethodRef::string_init();
-
-        self.instances.push((index, init_ref));
-        Ok(index)
+        self.global.new_java_string(string)
     }
 
     pub fn alloc(self: &mut Self, object: Object) -> Result<usize, WasmJVMError> {
-        self.heap.alloc(object)
+        self.global.new_object(object)
     }
 
     pub fn reference(self: &Self, reference: &Primitive) -> Result<&Object, WasmJVMError> {
-        self.heap.reference(reference)
+        self.global.reference_p(reference)
     }
 
     pub fn reference_mut(
         self: &mut Self,
         reference: &Primitive,
     ) -> Result<&mut Object, WasmJVMError> {
-        self.heap.reference_mut(reference)
+        self.global.reference_p_mut(reference)
     }
 }

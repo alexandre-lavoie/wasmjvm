@@ -1,6 +1,6 @@
 use crate::{
     AccessFlags, Attribute, AttributeInfo, ClassFile, ClassResolvable, Constant, Descriptor,
-    SourceStream, WithAccessFlags, WithAttributes, WithDescriptor,
+    SourceStream, WithAccessFlags, WithAttributes, WithDescriptor, AccessFlagType,
 };
 
 use std::{result::Result, slice::Iter};
@@ -31,6 +31,30 @@ impl Field {
 pub trait WithFields {
     fn fields(self: &Self) -> Option<Iter<Field>>;
 
+    fn field_names(self: &Self) ->  Vec<String> {
+        let mut fields = Vec::new();
+
+        for field in self.fields().unwrap() {
+            if !field.access_flags().has_type(&AccessFlagType::Static) {
+                fields.push(field.name().clone());
+            }
+        }
+
+        fields
+    }
+
+    fn static_field_names(self: &Self) -> Vec<String> {
+        let mut fields = Vec::new();
+
+        for field in self.fields().unwrap() {
+            if field.access_flags().has_type(&AccessFlagType::Static) {
+                fields.push(field.name().clone());
+            }
+        }
+
+        fields
+    }
+
     fn field(self: &Self, name: &String) -> Result<&Field, WasmJVMError> {
         if let Some(fields) = self.fields() {
             for field in fields {
@@ -40,7 +64,7 @@ pub trait WithFields {
             }
         }
 
-        Err(WasmJVMError::FieldNotFound)
+        Err(WasmJVMError::NoSuchFieldError(format!("{}", name)))
     }
 }
 
@@ -69,7 +93,7 @@ impl ClassResolvable<Field> for FieldInfo {
 
         let name = (match name_constant {
             Constant::Utf8(string) | Constant::String(string) => Ok(string),
-            _ => Err(WasmJVMError::FieldInvalid),
+            _ => Err(WasmJVMError::ClassFormatError(format!("Invalid name {:?}", name_constant))),
         })?;
 
         let descriptor = class_file

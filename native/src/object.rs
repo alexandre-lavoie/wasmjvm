@@ -1,74 +1,72 @@
 use std::collections::HashMap;
 
+use wasmjvm_class::{
+    AccessFlagType, Class, Constant, SingleType, Type, WithAccessFlags, WithDescriptor, WithFields,
+};
 use wasmjvm_common::WasmJVMError;
 
-use crate::{WithFields, WithAccessFlags, AccessFlagType, Type, SingleType, WithDescriptor, Class, Constant};
+use crate::{ClassInstance, Loader, NativeInterface, Thread};
 
 #[derive(Debug)]
-pub struct ClassInstance {
-    pub metadata: Class,
-    pub statics: HashMap<String, Primitive>
-}
-
-impl ClassInstance {
-    pub fn new(metadata: Class) -> Self {
-        let mut statics = HashMap::new();
-
-        if let Some(fields) = metadata.fields() {
-            for field in fields {
-                if field.access_flags().has_type(&AccessFlagType::Static) {
-                    statics.insert(field.name().to_string(), Primitive::Null);
-                }
-            }
-        }
-
-        Self {
-            metadata,
-            statics
-        }
-    }
+pub enum RustObject {
+    Class(ClassInstance),
+    String(String),
+    Array(Vec<Primitive>),
+    Thread(Thread),
+    Loader(Loader),
+    Native(NativeInterface),
+    Null,
 }
 
 #[derive(Debug)]
-pub struct Instance {
-    pub class: usize,
+pub struct Object {
+    class: Option<usize>,
+    inner: RustObject,
     pub fields: HashMap<String, Primitive>,
 }
 
-#[derive(Debug)]
-pub enum Object {
-    Class(ClassInstance),
-    Instance(Instance),
-    Array(Vec<Primitive>),
-    Primitive(Primitive),
-}
-
 impl Object {
-    pub fn new_instance(class_index: usize, metadata: &Class) -> Result<Self, WasmJVMError> {
-        let mut fields = HashMap::new();
+    pub fn new(
+        class_index: usize,
+        fields: Vec<String>,
+        inner: RustObject,
+    ) -> Result<Self, WasmJVMError> {
+        let mut fields_map = HashMap::new();
 
-        for field in metadata.fields().unwrap() {
-            let descriptor = field.descriptor();
-
-            if !field.access_flags().has_type(&AccessFlagType::Static) {
-                fields.insert(field.name().to_string(), Primitive::Null.into_type(descriptor.output())?);
-            }
+        for field in fields {
+            fields_map.insert(field, Primitive::Null);
         }
 
-        Ok(Self::Instance(Instance {
-            class: class_index,
-            fields
-        }))
+        Ok(Self {
+            class: Some(class_index),
+            inner,
+            fields: fields_map,
+        })
     }
 
     pub fn new_array(raw: Vec<Primitive>) -> Result<Self, WasmJVMError> {
-        Ok(Self::Array(raw))
+        Ok(Self {
+            class: None,
+            inner: RustObject::Array(raw),
+            fields: HashMap::new(),
+        })
     }
 
     pub fn new_empty_array(size: usize) -> Result<Self, WasmJVMError> {
         // TODO: Use type default value.
-        let vec = vec![Primitive::Null; size];
-        Ok(Self::Array(vec))
+        Self::new_array(vec![Primitive::Null; size])
+    }
+
+    pub fn class(self: &Self) -> Option<usize> {
+        self.class
+    }
+
+    pub fn inner(self: &Self) -> &RustObject {
+        &self.inner
+    }
+
+    pub fn inner_mut(self: &mut Self) -> &mut RustObject {
+        &mut self.inner
     }
 }
 
@@ -84,7 +82,6 @@ pub enum Primitive {
     Long(i64),
     Float(f32),
     Double(f64),
-    String(String),
     Reference(usize),
 }
 
@@ -105,7 +102,7 @@ macro_rules! primitive_into {
                 _ => panic!("Failed to cast {:?} to {}.", self, stringify!($type)),
             }
         }
-    }
+    };
 }
 
 macro_rules! primitive_op {
@@ -116,7 +113,7 @@ macro_rules! primitive_op {
                 (Primitive::Long(left), Primitive::Long(right)) => Ok(Primitive::Long(left $op right)),
                 (Primitive::Float(left), Primitive::Float(right)) => Ok(Primitive::Float(left $op right)),
                 (Primitive::Double(left), Primitive::Double(right)) => Ok(Primitive::Double(left $op right)),
-                _ => todo!()
+                _ => unreachable!()
             }
         }
     }
@@ -134,28 +131,26 @@ impl Primitive {
     pub fn into_void(self: &Self) -> Result<Self, WasmJVMError> {
         match self {
             Self::Void => Ok(Self::Void),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
     pub fn into_type(self: &Self, r#type: &Type) -> Result<Self, WasmJVMError> {
         match r#type {
             Type::Array(..) => self.into_ref(),
-            Type::Single(single) => {
-                match single {
-                    SingleType::Boolean => todo!(),
-                    SingleType::Byte => self.into_byte(),
-                    SingleType::Char => self.into_char(),
-                    SingleType::Double => self.into_double(),
-                    SingleType::Float => self.into_float(),
-                    SingleType::Int => self.into_int(),
-                    SingleType::Long => self.into_long(),
-                    SingleType::Short => self.into_short(),
-                    SingleType::Object(..) => self.into_ref(),
-                    SingleType::Void => self.into_void(),
-                    _ => todo!()
-                }
-            }
+            Type::Single(single) => match single {
+                SingleType::Boolean => todo!(),
+                SingleType::Byte => self.into_byte(),
+                SingleType::Char => self.into_char(),
+                SingleType::Double => self.into_double(),
+                SingleType::Float => self.into_float(),
+                SingleType::Int => self.into_int(),
+                SingleType::Long => self.into_long(),
+                SingleType::Short => self.into_short(),
+                SingleType::Object(..) => self.into_ref(),
+                SingleType::Void => self.into_void(),
+                _ => unreachable!(),
+            },
             _ => unreachable!(),
         }
     }
@@ -169,14 +164,14 @@ impl Primitive {
     pub fn is_void(self: &Self) -> bool {
         match self {
             Primitive::Void => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_null(self: &Self) -> bool {
         match self {
             Primitive::Null => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -194,7 +189,7 @@ impl Primitive {
             Primitive::Long(value) => Ok(Primitive::Long(-value)),
             Primitive::Float(value) => Ok(Primitive::Float(-value)),
             Primitive::Double(value) => Ok(Primitive::Double(-value)),
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -220,7 +215,7 @@ impl Primitive {
             (Primitive::Long(left), Primitive::Long(right)) => (left > right, left == right),
             (Primitive::Float(left), Primitive::Float(right)) => (left > right, left == right),
             (Primitive::Double(left), Primitive::Double(right)) => (left > right, left == right),
-            _ => unreachable!()
+            _ => unreachable!(),
         };
 
         if gt {
@@ -240,7 +235,7 @@ impl From<Constant> for Primitive {
             Constant::Float(value) => Primitive::Float(value),
             Constant::Long(value) => Primitive::Long(value),
             Constant::Double(value) => Primitive::Double(value),
-            _ => todo!("Missing conversion from {:?}.", constant),
+            _ => unreachable!(),
         }
     }
 }

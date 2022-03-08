@@ -6,8 +6,11 @@ extern "C" {
     pub type JS;
 
     #[wasm_bindgen(static_method_of=JS, js_class="default")]
-    pub fn log(message: &str);
+    pub fn log(message: String);
 
     #[wasm_bindgen(static_method_of=JS, js_class="default")]
-    pub fn prompt(message: &str) -> String;
+    pub fn error(message: String);
+
+    #[wasm_bindgen(static_method_of=JS, js_class="default")]
+    pub fn prompt() -> String;
 }

@@ -8,7 +8,7 @@ public class System {
     public static native void print(String string);
 
     public static String prompt(String string) {
-        println(string);
+        print(string);
         return input();
     }
 
