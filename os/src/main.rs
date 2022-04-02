@@ -5,7 +5,7 @@ use std::fs;
 use implementation::register;
 use wasmjvm_class::Class;
 use wasmjvm_common::WasmJVMError;
-use wasmjvm_native::{Primitive, RegisterFn};
+use wasmjvm_native::Primitive;
 use wasmjvm_vm::VM;
 
 fn vm_run(vm: &mut VM, classes: Vec<Class>, main: &String) -> Result<Primitive, WasmJVMError> {
@@ -48,7 +48,10 @@ fn eval() -> Result<(), WasmJVMError> {
         }
     }
 
-    let classes: Vec<Class> = class_files.iter().map(|class_file| Class::from_file(class_file).unwrap()).collect();
+    let classes: Vec<Class> = class_files
+        .iter()
+        .map(|class_file| Class::from_file(class_file).unwrap())
+        .collect();
     let main = "Main".to_string();
 
     let mut vm = VM::new();
@@ -68,5 +71,5 @@ fn eval() -> Result<(), WasmJVMError> {
 }
 
 fn main() {
-    eval().unwrap()
+    eval().unwrap();
 }

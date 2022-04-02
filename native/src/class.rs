@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use wasmjvm_class::{Class, WithFields, AccessFlagType, WithAccessFlags};
+use wasmjvm_class::{Class, WithFields};
 
 use crate::Primitive;
 

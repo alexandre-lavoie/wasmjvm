@@ -1,13 +1,8 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard},
-};
-
 use wasmjvm_class::Class;
 use wasmjvm_common::WasmJVMError;
 use wasmjvm_native::{
-    ClassInstance, Global, Loader, NativeInterface, Object, Primitive, RegisterFn, RustObject,
-    Thread, ThreadResult, JAVA_CLASS, JAVA_LOADER, JAVA_NATIVE, JAVA_OBJECT, JAVA_THREAD, NativeFn,
+    Global, Loader, NativeInterface, Primitive, RegisterFn, RustObject, Thread, ThreadResult,
+    JAVA_CLASS, JAVA_LOADER, JAVA_NATIVE, JAVA_OBJECT, JAVA_THREAD,
 };
 
 pub struct VM {
@@ -21,7 +16,13 @@ pub struct VM {
 impl VM {
     pub fn new() -> Self {
         let global = Global::new();
-        Self { global, classes: Vec::new(), natives: Vec::new(), initialized: false, main_class: None }
+        Self {
+            global,
+            classes: Vec::new(),
+            natives: Vec::new(),
+            initialized: false,
+            main_class: None,
+        }
     }
 
     fn load_loader(self: &mut Self, cores: Vec<Class>) -> Result<(), WasmJVMError> {
@@ -47,7 +48,7 @@ impl VM {
 
     pub fn load_classes(self: &mut Self) -> Result<(), WasmJVMError> {
         if self.initialized {
-            return Ok(())
+            return Ok(());
         }
 
         let mut cores = Vec::new();
@@ -56,7 +57,7 @@ impl VM {
         while self.classes.len() > 0 {
             if let Some(class) = self.classes.pop() {
                 let this_class = class.this_class().as_str();
-    
+
                 if this_class == JAVA_OBJECT
                     || this_class == JAVA_CLASS
                     || this_class == JAVA_THREAD
@@ -83,7 +84,7 @@ impl VM {
 
     pub fn init_interface(self: &mut Self) -> Result<(), WasmJVMError> {
         if self.initialized {
-            return Ok(())
+            return Ok(());
         }
 
         let native = NativeInterface::new();
@@ -123,7 +124,9 @@ impl VM {
         if let Some(main_class) = &self.main_class {
             self.global.main_class_set(&main_class)?;
         } else {
-            return Err(WasmJVMError::ClassNotFoundException(format!("Main class not set")))
+            return Err(WasmJVMError::ClassNotFoundException(format!(
+                "Main class not set"
+            )));
         }
 
         let mut result = Primitive::Void;
@@ -136,10 +139,7 @@ impl VM {
         let (loader_clinit, loader_init) = self.global.loader()?.threads();
         loop {
             loop {
-                match self
-                    .global
-                    .thread_tick(loader_clinit)
-                {
+                match self.global.thread_tick(loader_clinit) {
                     Ok(ThreadResult::Result(..)) => break,
                     Ok(ThreadResult::Stop) => break,
                     Err(err) => return Err(err),
@@ -148,10 +148,7 @@ impl VM {
             }
 
             loop {
-                match self
-                    .global
-                    .thread_tick(loader_init)
-                {
+                match self.global.thread_tick(loader_init) {
                     Ok(ThreadResult::Result(..)) => break,
                     Ok(ThreadResult::Stop) => break,
                     Err(err) => return Err(err),
@@ -165,10 +162,7 @@ impl VM {
                     continue;
                 }
 
-                match self
-                    .global
-                    .thread_tick(*thread_index)
-                {
+                match self.global.thread_tick(*thread_index) {
                     Ok(ThreadResult::Continue) => {
                         stop = false;
                     }

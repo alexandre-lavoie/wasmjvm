@@ -1,47 +1,23 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex}, ops::RangeBounds,
+    sync::{Arc, Mutex},
 };
 
-use wasmjvm_class::{Class, Descriptor, FieldRef, MethodRef, WithFields, WithAccessFlags, AccessFlagType};
+use wasmjvm_class::{Descriptor, FieldRef, MethodRef, WithFields};
 use wasmjvm_common::WasmJVMError;
 
 use crate::{
-    ClassInstance, Frame, Loader, NativeEnv, NativeFn, NativeInterface, Object, Primitive,
-    RustObject, Thread, ThreadResult, JAVA_CLASS, JAVA_STRING,
+    ClassInstance, Loader, NativeEnv, NativeFn, NativeInterface, Object, Primitive, RustObject,
+    Thread, ThreadResult, JAVA_STRING,
 };
 
 pub type RegisterFn = Box<dyn Fn(&mut NativeInterface)>;
 
 static mut HEAP: Option<Vec<Option<Object>>> = None;
 
-pub struct HeapObject<A> {
-    pub r#mut: usize,
-    pub inner: A
-}
-
-impl<A: std::fmt::Debug> HeapObject<A> {
-    fn new(inner: A) -> Self {
-        Self {
-            r#mut: 0,
-            inner
-        }
-    }
-
-    pub fn get<'a>(self: &'a Self) -> &'a A {
-        &self.inner
-    }
-
-    pub fn get_mut<'a>(self: &'a mut Self) -> &'a mut A {
-        self.r#mut += 1;
-
-        &mut self.inner
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct Heap {
-    index: Arc<Mutex<usize>>
+    index: Arc<Mutex<usize>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -111,7 +87,7 @@ impl Heap {
             if HEAP.is_none() {
                 let mut heap: Vec<Option<Object>> = Vec::with_capacity(1024);
 
-                for i in 0..heap.capacity() {
+                for _ in 0..heap.capacity() {
                     heap.push(None);
                 }
 
@@ -123,7 +99,7 @@ impl Heap {
             unsafe {
                 if let Some(heap) = &mut HEAP {
                     heap[*index] = Some(object);
-                }   
+                }
             }
 
             *index += 1;
@@ -238,12 +214,9 @@ impl Global {
         }
     }
 
-    pub fn thread_tick(
-        self: &mut Self,
-        thread_ref: usize,
-    ) -> Result<ThreadResult, WasmJVMError> {
+    pub fn thread_tick(self: &mut Self, thread_ref: usize) -> Result<ThreadResult, WasmJVMError> {
         let object_mut = self.reference_mut(thread_ref)?;
-    
+
         if let RustObject::Thread(thread) = object_mut.inner_mut() {
             thread.tick()
         } else {
@@ -306,7 +279,10 @@ impl Global {
         self.heap.get(reference)
     }
 
-    pub fn reference_p_mut(self: &mut Self, reference: &Primitive) -> Result<&mut Object, WasmJVMError> {
+    pub fn reference_p_mut(
+        self: &mut Self,
+        reference: &Primitive,
+    ) -> Result<&mut Object, WasmJVMError> {
         if let Primitive::Reference(index) = reference {
             self.reference_mut(*index)
         } else {
@@ -314,10 +290,7 @@ impl Global {
         }
     }
 
-    pub fn reference_mut(
-        self: &mut Self,
-        reference: usize,
-    ) -> Result<&mut Object, WasmJVMError> {
+    pub fn reference_mut(self: &mut Self, reference: usize) -> Result<&mut Object, WasmJVMError> {
         self.heap.get_mut(reference)
     }
 
@@ -342,7 +315,7 @@ impl Global {
         if let (RustObject::Array(array), Primitive::Int(index)) = (object.inner_mut(), index) {
             array[index as usize] = value;
 
-            return Ok(())
+            return Ok(());
         }
 
         Err(WasmJVMError::TODO)
@@ -384,10 +357,7 @@ impl Global {
         Ok(())
     }
 
-    pub fn resolve_fields(
-        self: &Self,
-        this_ref: usize
-    ) -> Result<Vec<String>, WasmJVMError> {
+    pub fn resolve_fields(self: &Self, this_ref: usize) -> Result<Vec<String>, WasmJVMError> {
         let object = self.reference(this_ref)?;
 
         let mut fields = Vec::new();
@@ -404,7 +374,7 @@ impl Global {
                     class_index = None;
                 }
             } else {
-                break
+                break;
             }
         }
 
@@ -417,10 +387,13 @@ impl Global {
         if let Ok(mut data) = self.data.lock() {
             data.main_class_index = Some(class_ref);
 
-            return Ok(())
+            return Ok(());
         }
 
-        Err(WasmJVMError::ClassNotFoundException(format!("Could not find main class {}", class_name)))
+        Err(WasmJVMError::ClassNotFoundException(format!(
+            "Could not find main class {}",
+            class_name
+        )))
     }
 
     pub fn main_class_index(self: &Self) -> Result<usize, WasmJVMError> {
@@ -430,7 +403,9 @@ impl Global {
             }
         }
 
-        Err(WasmJVMError::ClassNotFoundException(format!("No main class set")))
+        Err(WasmJVMError::ClassNotFoundException(format!(
+            "No main class set"
+        )))
     }
 
     pub fn class_index(self: &Self, name: &String) -> Result<usize, WasmJVMError> {
@@ -440,7 +415,10 @@ impl Global {
             }
         }
 
-        Err(WasmJVMError::ClassNotFoundException(format!("Could not find class {}", name)))
+        Err(WasmJVMError::ClassNotFoundException(format!(
+            "Could not find class {}",
+            name
+        )))
     }
 
     pub fn default_init(self: &mut Self, index: usize) -> Result<(), WasmJVMError> {
@@ -454,9 +432,9 @@ impl Global {
             } else {
                 return Err(WasmJVMError::TODO);
             };
-    
+
             loader.default_init(class, index)?;
-    
+
             Ok(())
         } else {
             Err(WasmJVMError::TODO)

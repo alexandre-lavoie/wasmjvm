@@ -10,7 +10,6 @@ import * as Material from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import FileUploadIcon from "@mui/icons-material/FileUpload";
-import ClearIcon from "@mui/icons-material/Clear";
 import DownloadDoneIcon from '@mui/icons-material/DownloadDone';
 
 const theme = Material.createTheme({
@@ -82,8 +81,6 @@ export default function App() {
 
                     return data.filter(data => data != null);
                 } else {
-                    console.log("TODO!");
-
                     return [];
                 }
             }));

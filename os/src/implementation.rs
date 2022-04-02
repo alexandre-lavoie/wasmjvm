@@ -1,8 +1,7 @@
 use std::io::BufRead;
 
 use wasmjvm_class::{Descriptor, MethodRef, SingleType, Type};
-use wasmjvm_common::WasmJVMError;
-use wasmjvm_native::{NativeEnv, NativeInterface, Object, Primitive, RustObject, register_method};
+use wasmjvm_native::{register_method, NativeEnv, NativeInterface, Primitive, RustObject};
 
 pub fn register(interface: &mut NativeInterface) {
     register_method!(

@@ -378,8 +378,7 @@ impl Streamable<SourceStream, ConstantInfo> for ConstantInfo {
                     bootstrap_method_attr_index,
                     name_and_type_index,
                 })
-            },
-            _ => unreachable!()
+            }
         }
     }
 }

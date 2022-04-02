@@ -130,7 +130,7 @@ impl Thread {
         let frame = Frame::new(method_ref, locals)?;
 
         self.frames.push(frame);
-        
+
         Ok(())
     }
 
@@ -157,15 +157,15 @@ impl Thread {
         Ok(())
     }
 
-    pub fn new_default_init_frame(self: &mut Self, class: usize, this: usize) -> Result<(), WasmJVMError> {
+    pub fn new_default_init_frame(
+        self: &mut Self,
+        class: usize,
+        this: usize,
+    ) -> Result<(), WasmJVMError> {
         let class = self.global.class(class)?;
         let class_name = class.metadata().this_class().clone();
 
-        let method_ref = MethodRef::new(
-            class_name,
-            "<init>".to_string(),
-            Descriptor::void(),
-        );
+        let method_ref = MethodRef::new(class_name, "<init>".to_string(), Descriptor::void());
 
         self.new_frame(method_ref, Some(Primitive::Reference(this)), Vec::new())
     }
@@ -212,10 +212,18 @@ impl Thread {
             format!("Native\n")
         };
 
-        let frames: Vec<String> = self.frames.iter().rev().map(|frame| format!("{:?}", frame)).collect();
+        let frames: Vec<String> = self
+            .frames
+            .iter()
+            .rev()
+            .map(|frame| format!("{:?}", frame))
+            .collect();
         let frames: String = frames.join("\n");
 
-        let message = format!("===== Thread ======\n{}\n{}\n================", opcode, frames);
+        let message = format!(
+            "===== Thread ======\n{}\n{}\n================",
+            opcode, frames
+        );
 
         Ok(message)
     }
@@ -644,9 +652,8 @@ impl Thread {
 
                 1
             }
-            // Dupx1,
-            // Dupx2,
-            // Dup2,
+            OpCode::DupX1 => todo!(),
+            OpCode::DupX2 => todo!(),
             OpCode::Dup2 => {
                 let v = stack.pop().unwrap();
 
@@ -668,9 +675,9 @@ impl Thread {
 
                 1
             }
-            // Dup2x1,
-            // Dup2x2,
-            // Swap,
+            OpCode::Dup2X1 => todo!(),
+            OpCode::Dup2X2 => todo!(),
+            OpCode::Swap => todo!(),
             OpCode::Iadd => {
                 let right = stack.pop().unwrap();
                 let left = stack.pop().unwrap();
@@ -838,19 +845,18 @@ impl Thread {
 
                 1
             }
-            // Ishl,
-            // Lshl,
-            // Ishr,
-            // Lshr,
-            // IUshr,
-            // LUshr,
-            // Iand,
-            // Land,
-            // Ior,
-            // Lor,
-            // Ixor,
-            // Lxor,
-            // Iinc,
+            OpCode::Ishl => todo!(),
+            OpCode::Lshl => todo!(),
+            OpCode::Ishr => todo!(),
+            OpCode::Lshr => todo!(),
+            OpCode::Iushr => todo!(),
+            OpCode::Lushr => todo!(),
+            OpCode::Iand => todo!(),
+            OpCode::Land => todo!(),
+            OpCode::Ior => todo!(),
+            OpCode::Lor => todo!(),
+            OpCode::Ixor => todo!(),
+            OpCode::Lxor => todo!(),
             OpCode::Iinc => {
                 let index = code[*pc + 1];
                 let r#const = code[*pc + 2] as i8;
@@ -1039,8 +1045,8 @@ impl Thread {
 
                 offset
             }
-            // IfAcmpeq,
-            // IfAcmpne,
+            OpCode::IfAcmpeq => todo!(),
+            OpCode::IfAcmpne => todo!(),
             OpCode::Goto => {
                 let b1 = code[*pc + 1] as u16;
                 let b2 = code[*pc + 2] as u16;
@@ -1048,10 +1054,10 @@ impl Thread {
 
                 branch as isize
             }
-            // Jsr,
-            // Ret,
-            // TableSwitch,
-            // LookupSwitch,
+            OpCode::Jsr => todo!(),
+            OpCode::Ret => todo!(),
+            OpCode::Tableswitch => todo!(),
+            OpCode::Lookupswitch => todo!(),
             OpCode::Ireturn
             | OpCode::Lreturn
             | OpCode::Freturn
@@ -1187,7 +1193,8 @@ impl Thread {
 
                 3
             }
-            // InvokeInterface,
+            OpCode::InvokeInterface => todo!(),
+            OpCode::InvokeDynamic => todo!(),
             OpCode::New => {
                 let i1 = code[*pc + 1] as u16;
                 let i2 = code[*pc + 2] as u16;
@@ -1247,17 +1254,18 @@ impl Thread {
 
                 1
             }
-            // AThrow,
-            // CheckCast,
-            // InstanceOf,
-            // MonitorEnter,
-            // MonitorExit,
-            // Wide,
-            // MultiANewArray,
-            // GotoW,
-            // JsrW,
-            // Breakpoint,
-            _ => todo!("Undefined OpCode {:?}", opcode),
+            OpCode::Athrow => todo!(),
+            OpCode::CheckCast => todo!(),
+            OpCode::Instanceof => todo!(),
+            OpCode::MonitorEnter => todo!(),
+            OpCode::MonitorExit => todo!(),
+            OpCode::Wide => todo!(),
+            OpCode::MultiANewArray => todo!(),
+            OpCode::GotoW => todo!(),
+            OpCode::JsrW => todo!(),
+            OpCode::Breakpoint => todo!(),
+            OpCode::Impdep1 => todo!(),
+            OpCode::Impdep2 => todo!(),
         };
 
         Ok((frames, r#return, offset))

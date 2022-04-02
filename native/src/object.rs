@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use wasmjvm_class::{
-    AccessFlagType, Class, Constant, SingleType, Type, WithAccessFlags, WithDescriptor, WithFields,
-};
+use wasmjvm_class::{Constant, SingleType, Type};
 use wasmjvm_common::WasmJVMError;
 
 use crate::{ClassInstance, Loader, NativeInterface, Thread};
@@ -149,9 +147,7 @@ impl Primitive {
                 SingleType::Short => self.into_short(),
                 SingleType::Object(..) => self.into_ref(),
                 SingleType::Void => self.into_void(),
-                _ => unreachable!(),
             },
-            _ => unreachable!(),
         }
     }
 

@@ -1,7 +1,7 @@
 use crate::{
     AccessFlags, Attribute, AttributeInfo, Constant, ConstantInfo, Field, FieldInfo, Interface,
     InterfaceInfo, Method, MethodInfo, MethodRef, SourceStream, WithAccessFlags, WithAttributes,
-    WithDescriptor, WithFields, WithInterfaces, WithMethods, AccessFlagType,
+    WithDescriptor, WithFields, WithInterfaces, WithMethods,
 };
 
 use std::slice::Iter;

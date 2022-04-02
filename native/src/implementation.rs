@@ -1,5 +1,4 @@
 use wasmjvm_class::{Descriptor, MethodRef, SingleType, Type};
-use wasmjvm_common::WasmJVMError;
 use crate::{NativeEnv, NativeInterface, Object, Primitive, RustObject};
 
 #[macro_export]

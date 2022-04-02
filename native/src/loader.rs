@@ -4,8 +4,8 @@ use wasmjvm_class::{Class, WithFields};
 use wasmjvm_common::WasmJVMError;
 
 use crate::{
-    ClassInstance, Global, Object, Primitive, RustObject, Thread, JAVA_CLASS, JAVA_LOADER,
-    JAVA_OBJECT, JAVA_THREAD,
+    ClassInstance, Global, Object, RustObject, Thread, JAVA_CLASS, JAVA_LOADER, JAVA_OBJECT,
+    JAVA_THREAD,
 };
 
 #[derive(Debug)]
@@ -44,7 +44,10 @@ impl Loader {
             && cores.contains_key(&JAVA_LOADER.to_string())
             && cores.contains_key(&JAVA_THREAD.to_string()))
         {
-            return Err(WasmJVMError::LinkageError(format!("Missing core classes {:?}", cores)));
+            return Err(WasmJVMError::LinkageError(format!(
+                "Missing core classes {:?}",
+                cores
+            )));
         }
 
         let object_class = cores.remove(&JAVA_OBJECT.to_string()).unwrap();

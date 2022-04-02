@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fmt::Debug, sync::{Arc, Mutex}};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use crate::{Object, Primitive, Global, JAVA_STRING, RustObject};
+use crate::{Global, Object, Primitive};
 use wasmjvm_class::MethodRef;
 use wasmjvm_common::WasmJVMError;
 
@@ -8,13 +8,13 @@ pub type NativeFn = Box<dyn Fn(&mut NativeEnv) -> Primitive>;
 
 #[derive(Clone)]
 pub struct NativeMethod {
-    raw: Arc<NativeFn>
+    raw: Arc<NativeFn>,
 }
 
 impl NativeMethod {
     fn new(r#fn: NativeFn) -> Self {
         Self {
-            raw: Arc::new(r#fn)
+            raw: Arc::new(r#fn),
         }
     }
 
@@ -37,11 +37,15 @@ impl Debug for NativeInterface {
 impl NativeInterface {
     pub fn new() -> Self {
         Self {
-            methods: HashMap::new()
+            methods: HashMap::new(),
         }
     }
 
-    pub fn register(self: &mut Self, method_ref: MethodRef, r#fn: NativeFn) -> Result<(), WasmJVMError> {
+    pub fn register(
+        self: &mut Self,
+        method_ref: MethodRef,
+        r#fn: NativeFn,
+    ) -> Result<(), WasmJVMError> {
         if self.methods.contains_key(&method_ref) {
             return Err(WasmJVMError::TODO);
         }
@@ -68,10 +72,7 @@ pub struct NativeEnv {
 
 impl NativeEnv {
     pub fn new(global: Global, variables: Vec<Primitive>) -> Self {
-        Self {
-            global,
-            variables,
-        }
+        Self { global, variables }
     }
 
     pub fn global(self: &Self) -> &Global {
