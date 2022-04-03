@@ -7,7 +7,7 @@ pub fn register(interface: &mut NativeInterface) {
     register_method!(
         interface,
         system_print,
-        "java/lang/System",
+        "java/io/PrintStream",
         "print",
         vec![Type::Single(SingleType::Object(
             "java/lang/String".to_string()
@@ -17,7 +17,7 @@ pub fn register(interface: &mut NativeInterface) {
     register_method!(
         interface,
         system_input,
-        "java/lang/System",
+        "java/io/InputStream",
         "input",
         vec![],
         Type::Single(SingleType::Object("java/lang/String".to_string()))
