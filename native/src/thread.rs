@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::{Global, Object, OpCode, Primitive, RustObject};
 use wasmjvm_class::{
     AccessFlagType, Constant, Descriptor, MethodRef, WithAccessFlags, WithAttributes, Type, SingleType, WithInterfaces,
@@ -1509,7 +1511,25 @@ impl Thread {
             OpCode::MonitorEnter => todo!(),
             OpCode::MonitorExit => todo!(),
             OpCode::Wide => todo!(),
-            OpCode::MultiANewArray => todo!(),
+            OpCode::MultiANewArray => {
+                // TODO: Check constant pool.
+                let index = (code[*pc + 1] as usize) << 8 | code[*pc + 2] as usize;
+                let dimensions = code[*pc + 3] as u8;
+                let mut counts = Vec::new();
+
+                for _ in 0..dimensions {
+                    if let Primitive::Int(int) = stack.pop().unwrap() {
+                        counts.push(int as usize);
+                    } else {
+                        todo!();
+                    }
+                }
+                counts.reverse();
+
+                stack.push(Object::new_deep_array(global, &counts, 0)?);
+
+                4
+            },
             OpCode::GotoW => todo!(),
             OpCode::JsrW => todo!(),
             OpCode::Breakpoint => todo!(),

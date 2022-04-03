@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use wasmjvm_class::{Constant, SingleType, Type};
 use wasmjvm_common::WasmJVMError;
 
-use crate::{ClassInstance, Loader, NativeInterface, Thread};
+use crate::{ClassInstance, Loader, NativeInterface, Thread, Global};
 
 #[derive(Debug)]
 pub enum RustObject {
@@ -53,6 +53,22 @@ impl Object {
     pub fn new_empty_array(size: usize) -> Result<Self, WasmJVMError> {
         // TODO: Use type default value.
         Self::new_array(vec![Primitive::Null; size])
+    }
+
+    pub fn new_deep_array(global: &mut Global, counts: &Vec<usize>, index: usize) -> Result<Primitive, WasmJVMError> {
+        let array_index: usize;
+
+        if index + 1 == counts.len() {
+            array_index = global.new_object(Object::new_empty_array(counts[index])?)?;
+        } else {
+            let mut array = Vec::new();
+            for _ in 0..counts[index] {
+                array.push(Object::new_deep_array(global, counts, index + 1)?);
+            }
+            array_index = global.new_object(Object::new_array(array)?)?;
+        }
+
+        Ok(Primitive::Reference(array_index))
     }
 
     pub fn class(self: &Self) -> Option<usize> {
