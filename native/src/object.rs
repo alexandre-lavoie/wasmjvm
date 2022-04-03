@@ -117,6 +117,18 @@ macro_rules! primitive_op {
     }
 }
 
+macro_rules! primitive_bit_op {
+    ($name:ident, $op:tt) => {
+        pub fn $name(self: &Self, other: &Self) -> Result<Self, WasmJVMError> {
+            match (self, other) {
+                (Primitive::Int(left), Primitive::Int(right)) => Ok(Primitive::Int(left $op right)),
+                (Primitive::Long(left), Primitive::Long(right)) => Ok(Primitive::Long(left $op right)),
+                _ => unreachable!()
+            }
+        }
+    }
+}
+
 impl Primitive {
     primitive_into!(into_float, Float, f32);
     primitive_into!(into_double, Double, f64);
@@ -125,6 +137,22 @@ impl Primitive {
     primitive_into!(into_byte, Byte, u8);
     primitive_into!(into_char, Char, u8);
     primitive_into!(into_short, Short, u16);
+
+    pub fn into_bool(self: &Self) -> Result<Self, WasmJVMError> {
+        match self {
+            Primitive::Boolean(value) => Ok(Primitive::Boolean(*value)),
+            Primitive::Byte(value) | Primitive::Char(value) => {
+                Ok(Primitive::Boolean(*value != 0))
+            }
+            Primitive::Short(value) => Ok(Primitive::Boolean(*value != 0)),
+            Primitive::Int(value) => Ok(Primitive::Boolean(*value != 0)),
+            Primitive::Long(value) => Ok(Primitive::Boolean(*value != 0)),
+            Primitive::Float(value) => Ok(Primitive::Boolean(*value != 0.0)),
+            Primitive::Double(value) => Ok(Primitive::Boolean(*value != 0.0)),
+            Primitive::Null => Ok(Primitive::Boolean(false)),
+            _ => panic!("Failed to cast {:?} to {}.", self, stringify!($type)),
+        }
+    }
 
     pub fn into_void(self: &Self) -> Result<Self, WasmJVMError> {
         match self {
@@ -137,7 +165,7 @@ impl Primitive {
         match r#type {
             Type::Array(..) => self.into_ref(),
             Type::Single(single) => match single {
-                SingleType::Boolean => todo!(),
+                SingleType::Boolean => self.into_bool(),
                 SingleType::Byte => self.into_byte(),
                 SingleType::Char => self.into_char(),
                 SingleType::Double => self.into_double(),
@@ -156,6 +184,18 @@ impl Primitive {
     primitive_op!(mul, *);
     primitive_op!(div, /);
     primitive_op!(rem, %);
+    primitive_bit_op!(and, &);
+    primitive_bit_op!(or, |);
+    primitive_bit_op!(xor, ^);
+    primitive_bit_op!(shl, <<);
+    primitive_bit_op!(shr, >>);
+    pub fn ushr(self: &Self, other: &Self) -> Result<Self, WasmJVMError> {
+        match (self, other) {
+            (Primitive::Int(left), Primitive::Int(right)) => Ok(Primitive::Int(((*left as u32) >> (*right as u32)) as i32)),
+            (Primitive::Long(left), Primitive::Long(right)) => Ok(Primitive::Long(((*left as u64) >> (*right as u64)) as i64)),
+            _ => unreachable!()
+        }
+    }
 
     pub fn is_void(self: &Self) -> bool {
         match self {

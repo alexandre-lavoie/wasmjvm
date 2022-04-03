@@ -93,17 +93,28 @@ impl Thread {
         local_variables: Vec<Primitive>,
     ) -> Result<(), WasmJVMError> {
         if let Ok((class_index, method_index, _descriptor)) = self.global.method(&method_ref) {
-            let method = self.global.class(class_index).unwrap().metadata().method(method_index);
+            let method = self
+                .global
+                .class(class_index)
+                .unwrap()
+                .metadata()
+                .method(method_index);
 
-            if !(method.access_flags().has_type(&AccessFlagType::Native) || method.attribute(&"Code".to_string()).is_ok()) {
+            if !(method.access_flags().has_type(&AccessFlagType::Native)
+                || method.attribute(&"Code".to_string()).is_ok())
+            {
                 if let Some(Primitive::Reference(mut this_index)) = this {
                     loop {
                         if let Ok(this_object) = self.global.reference(this_index) {
                             let this_class = self.global.class(this_object.class().unwrap())?;
                             let class_metadata = this_class.metadata();
-        
+
                             if let Ok(method_index) = class_metadata.method_index(&method_ref) {
-                                if class_metadata.method(method_index).attribute(&"Code".to_string()).is_ok() {
+                                if class_metadata
+                                    .method(method_index)
+                                    .attribute(&"Code".to_string())
+                                    .is_ok()
+                                {
                                     method_ref.class = class_metadata.this_class().clone();
                                     break;
                                 }
@@ -114,7 +125,7 @@ impl Thread {
                         } else {
                             break;
                         }
-                    };
+                    }
                 }
             }
         }
@@ -872,18 +883,102 @@ impl Thread {
 
                 1
             }
-            OpCode::Ishl => todo!(),
-            OpCode::Lshl => todo!(),
-            OpCode::Ishr => todo!(),
-            OpCode::Lshr => todo!(),
-            OpCode::Iushr => todo!(),
-            OpCode::Lushr => todo!(),
-            OpCode::Iand => todo!(),
-            OpCode::Land => todo!(),
-            OpCode::Ior => todo!(),
-            OpCode::Lor => todo!(),
-            OpCode::Ixor => todo!(),
-            OpCode::Lxor => todo!(),
+            OpCode::Ishl => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_int()?.shl(&right.into_int()?)?);
+
+                1
+            }
+            OpCode::Lshl => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_long()?.shl(&right.into_long()?)?);
+
+                1
+            }
+            OpCode::Ishr => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_int()?.shr(&right.into_int()?)?);
+
+                1
+            }
+            OpCode::Lshr => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_long()?.shr(&right.into_long()?)?);
+
+                1
+            }
+            OpCode::Iushr => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_int()?.ushr(&right.into_int()?)?);
+
+                1
+            }
+            OpCode::Lushr => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_long()?.ushr(&right.into_long()?)?);
+
+                1
+            }
+            OpCode::Iand => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_int()?.and(&right.into_int()?)?);
+
+                1
+            }
+            OpCode::Land => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_long()?.and(&right.into_long()?)?);
+
+                1
+            }
+            OpCode::Ior => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_int()?.or(&right.into_int()?)?);
+
+                1
+            }
+            OpCode::Lor => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_long()?.or(&right.into_long()?)?);
+
+                1
+            }
+            OpCode::Ixor => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_int()?.xor(&right.into_int()?)?);
+
+                1
+            }
+            OpCode::Lxor => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                stack.push(left.into_long()?.xor(&right.into_long()?)?);
+
+                1
+            }
             OpCode::Iinc => {
                 let index = code[*pc + 1];
                 let r#const = code[*pc + 2] as i8;
