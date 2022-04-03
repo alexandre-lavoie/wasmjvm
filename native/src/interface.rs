@@ -47,7 +47,7 @@ impl NativeInterface {
         r#fn: NativeFn,
     ) -> Result<(), WasmJVMError> {
         if self.methods.contains_key(&method_ref) {
-            return Err(WasmJVMError::TODO);
+            return Err(WasmJVMError::TODO(24));
         }
 
         self.methods.insert(method_ref, NativeMethod::new(r#fn));
@@ -59,7 +59,7 @@ impl NativeInterface {
         if let Some(method) = self.methods.get(method_ref) {
             Ok(method.clone())
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(25))
         }
     }
 }

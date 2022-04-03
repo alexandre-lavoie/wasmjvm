@@ -88,10 +88,37 @@ impl Thread {
 
     fn new_frame(
         self: &mut Self,
-        method_ref: MethodRef,
+        mut method_ref: MethodRef,
         this: Option<Primitive>,
         local_variables: Vec<Primitive>,
     ) -> Result<(), WasmJVMError> {
+        if let Ok((class_index, method_index, _descriptor)) = self.global.method(&method_ref) {
+            let method = self.global.class(class_index).unwrap().metadata().method(method_index);
+
+            if !(method.access_flags().has_type(&AccessFlagType::Native) || method.attribute(&"Code".to_string()).is_ok()) {
+                if let Some(Primitive::Reference(mut this_index)) = this {
+                    loop {
+                        if let Ok(this_object) = self.global.reference(this_index) {
+                            let this_class = self.global.class(this_object.class().unwrap())?;
+                            let class_metadata = this_class.metadata();
+        
+                            if let Ok(method_index) = class_metadata.method_index(&method_ref) {
+                                if class_metadata.method(method_index).attribute(&"Code".to_string()).is_ok() {
+                                    method_ref.class = class_metadata.this_class().clone();
+                                    break;
+                                }
+                            }
+
+                            let super_class = class_metadata.super_class().as_ref().unwrap();
+                            this_index = self.global.class_index(super_class).unwrap();
+                        } else {
+                            break;
+                        }
+                    };
+                }
+            }
+        }
+
         let max_locals = {
             let (class_index, method_index, descriptor) = self.global.method(&method_ref)?;
             let class = self.global.class_mut(class_index)?;
@@ -107,7 +134,7 @@ impl Thread {
                 if let wasmjvm_class::AttributeBody::Code(code) = code {
                     code.max_locals as usize
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(27));
                 }
             }
         };
@@ -277,7 +304,7 @@ impl Thread {
                     *pc = (*pc as isize + offset) as usize;
                 }
             } else {
-                return Err(WasmJVMError::TODO);
+                return Err(WasmJVMError::TODO(28));
             }
         }
 
@@ -865,7 +892,7 @@ impl Thread {
                 if let Primitive::Int(raw) = local.into_int()? {
                     *local = Primitive::Int(raw + r#const as i32);
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(29));
                 }
 
                 3
@@ -973,7 +1000,7 @@ impl Thread {
                 let int = if let Primitive::Int(value) = value {
                     value
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(30));
                 };
 
                 // TODO: Check if correct.
@@ -1040,7 +1067,7 @@ impl Thread {
                             3
                         }
                     } else {
-                        return Err(WasmJVMError::TODO);
+                        return Err(WasmJVMError::TODO(31));
                     };
 
                 offset
@@ -1093,7 +1120,7 @@ impl Thread {
 
                     stack.push(field);
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(32));
                 }
 
                 3
@@ -1110,7 +1137,7 @@ impl Thread {
 
                     global.static_field_set(field_ref, value)?;
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(33));
                 }
 
                 3
@@ -1130,10 +1157,10 @@ impl Thread {
                     if let Some(field) = field {
                         stack.push(field.clone());
                     } else {
-                        return Err(WasmJVMError::TODO);
+                        return Err(WasmJVMError::TODO(34));
                     }
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(35));
                 }
 
                 3
@@ -1150,7 +1177,7 @@ impl Thread {
                 if let Constant::FieldRef(field_ref) = field_ref {
                     global.field_set(object_ref, field_ref, value)?;
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(36));
                 }
 
                 3
@@ -1166,7 +1193,6 @@ impl Thread {
 
                 if let Constant::MethodRef(method_ref) = method_ref {
                     let locals = Self::pop_locals(&method_ref.descriptor, stack)?;
-
                     let this = stack.pop().unwrap();
 
                     frames.push((method_ref.clone(), Some(this), locals));
@@ -1181,9 +1207,9 @@ impl Thread {
                 let i2 = code[*pc + 2] as u16;
                 let index = (i1 << 8 | i2) as usize;
 
-                let method_ref = metadata.constant(index);
+                let constant = metadata.constant(index);
 
-                if let Constant::MethodRef(method_ref) = method_ref {
+                if let Constant::MethodRef(method_ref) = constant {
                     let locals = Self::pop_locals(&method_ref.descriptor, stack)?;
 
                     frames.push((method_ref.clone(), None, locals));
@@ -1193,7 +1219,26 @@ impl Thread {
 
                 3
             }
-            OpCode::InvokeInterface => todo!(),
+            OpCode::InvokeInterface => {
+                let i1 = code[*pc + 1] as u16;
+                let i2 = code[*pc + 2] as u16;
+                let index = (i1 << 8 | i2) as usize;
+                let _count = code[*pc + 3] as u8;
+                let _zero = code[*pc + 4] as u8;
+
+                let constant = metadata.constant(index);
+
+                if let Constant::InterfaceMethodRef(method_ref) = constant {
+                    let locals = Self::pop_locals(&method_ref.descriptor, stack)?;
+                    let this = stack.pop().unwrap();
+
+                    frames.push((method_ref.clone(), Some(this), locals));
+                } else {
+                    panic!("Expected interface method.");
+                }
+
+                5
+            }
             OpCode::InvokeDynamic => todo!(),
             OpCode::New => {
                 let i1 = code[*pc + 1] as u16;
@@ -1221,7 +1266,7 @@ impl Thread {
                     let index = global.new_object(Object::new_empty_array(size as usize)?)?;
                     stack.push(Primitive::Reference(index));
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(37));
                 }
 
                 2
@@ -1235,7 +1280,7 @@ impl Thread {
                     let index = global.new_object(Object::new_empty_array(size as usize)?)?;
                     stack.push(Primitive::Reference(index));
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(38));
                 }
 
                 todo!();
@@ -1249,7 +1294,7 @@ impl Thread {
                 if let RustObject::Array(raw) = object.inner() {
                     stack.push(Primitive::Int(raw.len() as i32));
                 } else {
-                    return Err(WasmJVMError::TODO);
+                    return Err(WasmJVMError::TODO(39));
                 }
 
                 1

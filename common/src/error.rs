@@ -2,7 +2,7 @@
 
 #[derive(Debug)]
 pub enum WasmJVMError {
-    TODO,
+    TODO(usize),
     ClassNotFoundException(String),
     InstantiationException(String),
     NoSuchFieldException(String),

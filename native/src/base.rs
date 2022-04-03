@@ -47,7 +47,7 @@ impl Heap {
             }
         }
 
-        Err(WasmJVMError::TODO)
+        Err(WasmJVMError::TODO(0))
     }
 
     fn get_mut(self: &Self, index: usize) -> Result<&mut Object, WasmJVMError> {
@@ -61,7 +61,7 @@ impl Heap {
             }
         }
 
-        Err(WasmJVMError::TODO)
+        Err(WasmJVMError::TODO(1))
     }
 
     pub fn index(self: &Self) -> usize {
@@ -129,10 +129,10 @@ impl Global {
             if let Some(native_index) = data.native_index.clone() {
                 Ok(native_index)
             } else {
-                Err(WasmJVMError::TODO)
+                Err(WasmJVMError::TODO(2))
             }
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(3))
         }
     }
 
@@ -142,7 +142,7 @@ impl Global {
         if let RustObject::Native(native) = object.inner() {
             Ok(native)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(4))
         }
     }
 
@@ -152,7 +152,7 @@ impl Global {
         if let RustObject::Native(native) = object.inner_mut() {
             Ok(native)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(5))
         }
     }
 
@@ -168,7 +168,7 @@ impl Global {
         if let RustObject::Class(class) = object.inner() {
             Ok(class)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(6))
         }
     }
 
@@ -178,7 +178,7 @@ impl Global {
         if let RustObject::Class(class) = object.inner_mut() {
             Ok(class)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(7))
         }
     }
 
@@ -187,10 +187,10 @@ impl Global {
             if let Some(loader_index) = data.loader_index.clone() {
                 Ok(loader_index)
             } else {
-                Err(WasmJVMError::TODO)
+                Err(WasmJVMError::TODO(8))
             }
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(9))
         }
     }
 
@@ -200,7 +200,7 @@ impl Global {
         if let RustObject::Loader(loader) = object.inner() {
             Ok(loader)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(10))
         }
     }
 
@@ -210,7 +210,7 @@ impl Global {
         if let RustObject::Loader(loader) = object.inner_mut() {
             Ok(loader)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(11))
         }
     }
 
@@ -220,7 +220,7 @@ impl Global {
         if let RustObject::Thread(thread) = object_mut.inner_mut() {
             thread.tick()
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(12))
         }
     }
 
@@ -241,17 +241,17 @@ impl Global {
             if let Some(native_index) = data.native_index {
                 native_index
             } else {
-                return Err(WasmJVMError::TODO);
+                return Err(WasmJVMError::TODO(13));
             }
         } else {
-            return Err(WasmJVMError::TODO);
+            return Err(WasmJVMError::TODO(14));
         };
 
         let object_mut = self.heap.get_mut(native_index)?;
         if let RustObject::Native(native) = object_mut.inner_mut() {
             native.register(method_ref, r#fn)?;
         } else {
-            return Err(WasmJVMError::TODO);
+            return Err(WasmJVMError::TODO(15));
         }
 
         Ok(())
@@ -271,7 +271,7 @@ impl Global {
         if let Primitive::Reference(index) = reference {
             self.reference(*index)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(16))
         }
     }
 
@@ -286,7 +286,7 @@ impl Global {
         if let Primitive::Reference(index) = reference {
             self.reference_mut(*index)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(17))
         }
     }
 
@@ -300,7 +300,7 @@ impl Global {
         if let RustObject::Thread(thread) = object.inner_mut() {
             Ok(thread)
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(18))
         }
     }
 
@@ -318,7 +318,7 @@ impl Global {
             return Ok(());
         }
 
-        Err(WasmJVMError::TODO)
+        Err(WasmJVMError::TODO(19))
     }
 
     pub fn static_field(self: &Self, field_ref: &FieldRef) -> Result<Primitive, WasmJVMError> {
@@ -327,7 +327,7 @@ impl Global {
         if let Some(field) = self.class(class_ref)?.statics.get(&field_ref.name) {
             Ok(field.clone())
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(19))
         }
     }
 
@@ -430,14 +430,14 @@ impl Global {
             let loader = if let RustObject::Loader(loader) = object.inner_mut() {
                 loader
             } else {
-                return Err(WasmJVMError::TODO);
+                return Err(WasmJVMError::TODO(20));
             };
 
             loader.default_init(class, index)?;
 
             Ok(())
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(21))
         }
     }
 
@@ -466,14 +466,14 @@ impl Global {
                 }
                 RustObject::Loader(loader) => {
                     if data.loader_index.is_some() {
-                        return Err(WasmJVMError::TODO);
+                        return Err(WasmJVMError::TODO(22));
                     }
 
                     data.loader_index = Some(index)
                 }
                 RustObject::Native(native) => {
                     if data.native_index.is_some() {
-                        return Err(WasmJVMError::TODO);
+                        return Err(WasmJVMError::TODO(23));
                     }
 
                     data.native_index = Some(index)

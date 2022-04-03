@@ -124,11 +124,7 @@ pub enum Constant {
     String(String),
     FieldRef(FieldRef),
     MethodRef(MethodRef),
-    InterfaceMethodRef {
-        class: String,
-        name: String,
-        descriptor: Descriptor,
-    },
+    InterfaceMethodRef(MethodRef),
     NameAndType {
         name: String,
         descriptor: Descriptor,
@@ -246,11 +242,11 @@ impl ClassResolvable<Constant> for ConstantInfo {
                         name,
                         descriptor,
                     }),
-                    ConstantInfo::InterfaceMethodRef { .. } => Constant::InterfaceMethodRef {
-                        class,
-                        name,
-                        descriptor,
-                    },
+                    ConstantInfo::InterfaceMethodRef { .. } => Constant::InterfaceMethodRef(MethodRef::new(
+                        class, 
+                        name, 
+                        descriptor
+                    )),
                     _ => unreachable!(),
                 })
             }

@@ -24,11 +24,18 @@ pub enum SingleType {
     Void,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct Descriptor {
     parameters: Vec<Type>,
     output: Type,
 }
+
+impl PartialEq for Descriptor {
+    fn eq(&self, other: &Self) -> bool {
+        self.output == other.output && self.parameters.len() == other.parameters.len() && self.parameters.iter().zip(other.parameters.iter()).all(|(s, o)| s == o)
+    }
+}
+impl Eq for Descriptor {}
 
 impl Descriptor {
     pub fn new(parameters: Vec<Type>, output: Type) -> Self {

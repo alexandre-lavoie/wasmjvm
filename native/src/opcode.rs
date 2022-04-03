@@ -215,7 +215,7 @@ impl OpCode {
         if opcode <= 201 {
             Ok(unsafe { std::mem::transmute(opcode) })
         } else {
-            Err(WasmJVMError::TODO)
+            Err(WasmJVMError::TODO(26))
         }
     }
 }
