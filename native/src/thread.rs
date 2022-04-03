@@ -1,6 +1,6 @@
 use crate::{Global, Object, OpCode, Primitive, RustObject};
 use wasmjvm_class::{
-    AccessFlagType, Constant, Descriptor, MethodRef, WithAccessFlags, WithAttributes,
+    AccessFlagType, Constant, Descriptor, MethodRef, WithAccessFlags, WithAttributes, Type, SingleType, WithInterfaces,
 };
 use wasmjvm_common::WasmJVMError;
 
@@ -1355,10 +1355,10 @@ impl Thread {
             OpCode::NewArray => {
                 // TODO: Check constant pool.
                 let r#type = code[*pc + 1] as usize;
-                let size = stack.pop().unwrap().into_int()?;
+                let count = stack.pop().unwrap().into_int()?;
 
-                if let Primitive::Int(size) = size {
-                    let index = global.new_object(Object::new_empty_array(size as usize)?)?;
+                if let Primitive::Int(count) = count {
+                    let index = global.new_object(Object::new_empty_array(count as usize)?)?;
                     stack.push(Primitive::Reference(index));
                 } else {
                     return Err(WasmJVMError::TODO(37));
@@ -1369,22 +1369,20 @@ impl Thread {
             OpCode::ANewArray => {
                 // TODO: Check constant pool.
                 let index = (code[*pc + 1] as usize) << 8 | code[*pc + 2] as usize;
-                let size = stack.pop().unwrap().into_int()?;
+                let count = stack.pop().unwrap().into_int()?;
 
-                if let Primitive::Int(size) = size {
-                    let index = global.new_object(Object::new_empty_array(size as usize)?)?;
+                if let Primitive::Int(count) = count {
+                    let index = global.new_object(Object::new_empty_array(count as usize)?)?;
                     stack.push(Primitive::Reference(index));
                 } else {
                     return Err(WasmJVMError::TODO(38));
                 }
 
-                todo!();
-
                 3
             }
             OpCode::ArrayLength => {
-                let arrayref = stack.pop().unwrap();
-                let object = global.reference_p(&arrayref)?;
+                let array_ref = stack.pop().unwrap();
+                let object = global.reference_p(&array_ref)?;
 
                 if let RustObject::Array(raw) = object.inner() {
                     stack.push(Primitive::Int(raw.len() as i32));
@@ -1395,8 +1393,119 @@ impl Thread {
                 1
             }
             OpCode::Athrow => todo!(),
-            OpCode::CheckCast => todo!(),
-            OpCode::Instanceof => todo!(),
+            OpCode::Instanceof | OpCode::CheckCast => {
+                // TODO: CheckCast difference with Instanceof
+                let i1 = code[*pc + 1] as u16;
+                let i2 = code[*pc + 2] as u16;
+                let index = (i1 << 8 | i2) as usize;
+                let class_ref = metadata.constant(index);
+                let object_ref = stack.pop().unwrap();
+
+                let mut instanceof = true;
+                if let Constant::Class{ name } = class_ref {
+                    let r#type: Type;
+                    if name.starts_with("[") {
+                        let descriptor = Descriptor::from_string(name)?;
+                        r#type = descriptor.output().clone();
+                    } else {
+                        r#type = Type::Single(SingleType::Object(name.clone()));
+                    }
+
+                    let single_type: SingleType;
+                    let array_size: usize;
+                    match r#type {
+                        Type::Single(r#type) => {
+                            single_type = r#type;
+                            array_size = 0;
+                        }
+                        Type::Array(r#type, size) => {
+                            single_type = r#type;
+                            array_size = size;
+                        }
+                    }
+
+                    let class_type: String;
+                    if let SingleType::Object(class) = single_type {
+                        class_type = class;
+                    } else {
+                        todo!("{:?}", name);
+                    }
+
+                    let mut object_array_size = 0;
+                    let mut array_queue: Vec<&Primitive> = vec![&object_ref];
+                    let mut next_array_queue: Vec<&Primitive> = Vec::new();
+
+                    while array_queue.len() > 0 {
+                        while array_queue.len() > 0 {
+                            let next_primitive = array_queue.pop().unwrap();
+
+                            match next_primitive {
+                                Primitive::Reference(index) => {
+                                    let next_object = global.reference(*index)?;
+
+                                    match next_object.inner() {
+                                        RustObject::Array(primitives) => {
+                                            for primitive in primitives.iter() {
+                                                next_array_queue.push(primitive);
+                                            }
+                                        }
+                                        _ => {
+                                            let mut class_index = next_object.class().unwrap();
+
+                                            loop {
+                                                let class = global.class(class_index)?;
+                                                let class_metadata = class.metadata();
+
+                                                if class_metadata.this_class() == &class_type {
+                                                    break;
+                                                }
+
+                                                if class_metadata.interface(&class_type).is_ok() {
+                                                    break;
+                                                }
+
+                                                if let Some(super_class) = class_metadata.super_class() {
+                                                    if super_class == &class_type {
+                                                        break;
+                                                    }
+
+                                                    class_index = global.class_index(super_class)?;
+                                                } else {
+                                                    instanceof = false;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                _ => instanceof = false,
+                            };
+
+                            if !instanceof {
+                                break;
+                            }
+                        }
+
+                        if !instanceof || next_array_queue.len() == 0 {
+                            break;
+                        }
+
+                        object_array_size += 1;
+                        if object_array_size > array_size {
+                            instanceof = false;
+                            break;
+                        }
+
+                        array_queue.append(&mut next_array_queue);
+                    }
+                } else {
+                    return Err(WasmJVMError::TODO(40));
+                }
+
+                stack.push(Primitive::Int(instanceof as i32));
+
+                3
+            },
             OpCode::MonitorEnter => todo!(),
             OpCode::MonitorExit => todo!(),
             OpCode::Wide => todo!(),
