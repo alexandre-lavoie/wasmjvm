@@ -34,8 +34,8 @@ pub struct Class {
 }
 
 impl Class {
-    pub fn from_file(path: &String) -> Result<Class, WasmJVMError> {
-        let mut stream = SourceStream::from_file(path)?;
+    pub fn from_file<F: std::io::Read>(cursor: F) -> Result<Class, WasmJVMError> {
+        let mut stream = SourceStream::from_file(cursor)?;
         Self::from_stream(&mut stream)
     }
 

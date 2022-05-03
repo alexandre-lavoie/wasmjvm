@@ -3,9 +3,7 @@ mod implementation;
 
 use binding::JS;
 use wasm_bindgen::prelude::*;
-use wasmjvm_class::{Class, SourceStream};
-use wasmjvm_common::{FromData, Stream, Streamable, WasmJVMError};
-use wasmjvm_native::Primitive;
+use wasmjvm_common::WasmJVMError;
 use wasmjvm_vm::VM;
 
 use crate::implementation::register;
@@ -17,26 +15,16 @@ pub fn run() -> JsValue {
     inner_run()
 }
 
-fn vm_run(vm: &mut VM) -> Result<Primitive, WasmJVMError> {
-    vm.load_classes()?;
-
-    vm.init_interface()?;
-
-    vm.register_natives()?;
-
-    vm.run()
-}
-
 fn inner_run() -> JsValue {
     unsafe {
         if let Some(vm) = &mut STATIC_VM {
-            let result =  vm_run(vm);
+            let result = vm.run();
 
             match result {
                 Ok(result) => JsValue::from_str(format!("{:?}", result).as_str()),
-                Err(err) => {
-                    JsValue::from_str(format!("{}\nError: {:?}", vm.unwind().unwrap(), err).as_str())
-                }
+                Err(err) => JsValue::from_str(
+                    format!("{}\nError: {:?}", vm.stack_trace().unwrap(), err).as_str(),
+                ),
             }
         } else {
             unreachable!()
@@ -45,11 +33,19 @@ fn inner_run() -> JsValue {
 }
 
 #[wasm_bindgen]
-pub fn class_load(file: Vec<u8>) -> JsValue {
-    match inner_load(&file) {
-        Ok(string) => {
-            JsValue::from_str(format!("{}", string).as_str())
+pub fn load_jar(jar: Vec<u8>) -> JsValue {
+    let jar = std::io::Cursor::new(jar);
+
+    let result = unsafe {
+        if STATIC_VM.is_none() {
+            inner_boot(jar)
+        } else {
+            inner_load_jar(jar)
         }
+    };
+
+    match result {
+        Ok(string) => JsValue::from_str(format!("{}", string).as_str()),
         Err(err) => {
             JS::error(format!("{:?}", err));
             JsValue::null()
@@ -57,38 +53,35 @@ pub fn class_load(file: Vec<u8>) -> JsValue {
     }
 }
 
-fn inner_load(class: &Vec<u8>) -> Result<String, WasmJVMError> {
-    let stream = &mut SourceStream::from_vec(class);
-
-    let class = Class::from_stream(stream)?;
-
-    let class_raw = format!("{:?}", class.this_class());
-
+fn inner_load_jar<B: std::io::Read + std::io::Seek>(jar: B) -> Result<String, WasmJVMError> {
     unsafe {
-        if STATIC_VM.is_none() {
-            let mut vm = VM::new();
-            vm.register_native(Box::new(wasmjvm_native::register))?;
-            vm.register_native(Box::new(register))?;
-            STATIC_VM = Some(vm);
-        }
-
         if let Some(vm) = &mut STATIC_VM {
-            vm.load_class(class)?;
+            vm.load_jars(vec![jar])?;
         } else {
             unreachable!()
         }
     };
 
-    Ok(class_raw)
+    Ok("Loaded Jar".to_string())
 }
 
-#[wasm_bindgen]
-pub fn main_class(cls: String) {
+fn inner_boot<B: std::io::Read + std::io::Seek>(jar: B) -> Result<String, WasmJVMError> {
     unsafe {
         if let Some(vm) = &mut STATIC_VM {
-            vm.main_class_set(&cls).unwrap();
+            vm.load_jars(vec![jar])?;
         } else {
-            unreachable!()
+            let mut vm = VM::new();
+
+            vm.register_native(Box::new(wasmjvm_native::register))?;
+            vm.register_native(Box::new(register))?;
+
+            vm.boot(jar)?;
+
+            vm.register_natives()?;
+
+            STATIC_VM = Some(vm);
         }
     }
+
+    Ok("Booted VM".to_string())
 }

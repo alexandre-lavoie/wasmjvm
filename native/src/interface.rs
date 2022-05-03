@@ -59,7 +59,7 @@ impl NativeInterface {
         if let Some(method) = self.methods.get(method_ref) {
             Ok(method.clone())
         } else {
-            Err(WasmJVMError::TODO(25))
+            Err(WasmJVMError::LinkageError(format!("JNI could not link {:?}", method_ref)))
         }
     }
 }

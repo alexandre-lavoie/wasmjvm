@@ -88,22 +88,21 @@ pub trait FromData
 where
     Self: Sized,
 {
-    fn from_vec(vec: &Vec<u8>) -> Self;
+    fn from_vec(vec: Vec<u8>) -> Self;
 
-    fn from_str(string: &str) -> Self {
-        Self::from_vec(&string.to_string().into_bytes())
+    fn from_string(string: String) -> Self {
+        Self::from_vec(string.into_bytes())
     }
 
-    fn from_file(path: &String) -> Result<Self, WasmJVMError> {
-        if let Ok(mut file) = fs::File::open(path) {
-            if let Ok(metadata) = fs::metadata(path) {
-                let mut source = vec![0; metadata.len() as usize];
-                if file.read(&mut source).is_ok() {
-                    return Ok(Self::from_vec(&source));
-                }
-            }
-        }
+    fn from_str(string: &str) -> Self {
+        Self::from_string(string.to_string())
+    }
 
-        Err(WasmJVMError::LinkageError(format!("File not found {}", path)))
+    fn from_file<F: std::io::Read>(mut cursor: F) -> Result<Self, WasmJVMError> {
+        let mut buffer = Vec::new();
+
+        cursor.read_to_end(&mut buffer).unwrap();
+
+        Ok(Self::from_vec(buffer))
     }
 }

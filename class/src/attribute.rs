@@ -63,7 +63,7 @@ impl ClassResolvable<Attribute> for AttributeInfo {
         let name = class_file
             .constant(self.attribute_name_index as usize)?
             .to_string()?;
-        let mut source = SourceStream::from_vec(&self.info);
+        let mut source = SourceStream::from_vec(self.info.clone());
 
         let body = match name.as_str() {
             "Code" => {

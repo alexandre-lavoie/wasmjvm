@@ -21,9 +21,9 @@ impl Stream<u8> for SourceStream {
 }
 
 impl FromData for SourceStream {
-    fn from_vec(vec: &Vec<u8>) -> Self {
+    fn from_vec(source: Vec<u8>) -> Self {
         SourceStream {
-            source: vec.clone(),
+            source,
             ..Default::default()
         }
     }

@@ -76,6 +76,7 @@ impl Frame {
 pub struct Thread {
     global: Global,
     frames: Vec<Frame>,
+    priority: usize
 }
 
 pub enum ThreadResult {
@@ -85,25 +86,32 @@ pub enum ThreadResult {
 }
 
 impl Thread {
-    pub fn new(global: Global) -> Self {
+    pub fn new(global: Global, priority: usize) -> Self {
         Self {
-            frames: vec![],
             global,
+            frames: Vec::new(),
+            priority
         }
     }
 
-    pub fn init_main(self: &mut Self) -> Result<(), WasmJVMError> {
-        self.new_main_frame()?;
+    pub fn new_main(global: Global) -> Result<Self, WasmJVMError> {
+        let mut thread = Self {
+            global,
+            frames: Vec::new(),
+            priority: 0
+        };
 
-        Ok(())
+        thread.new_main_frame()?;
+
+        Ok(thread)
     }
 
-    fn new_frame(
+    fn build_frame(
         self: &mut Self,
         mut method_ref: MethodRef,
         this: Option<Primitive>,
         local_variables: Vec<Primitive>,
-    ) -> Result<(), WasmJVMError> {
+    ) -> Result<Frame, WasmJVMError> {
         if let Ok((class_index, method_index, _descriptor)) = self.global.method(&method_ref) {
             let method = self
                 .global
@@ -112,30 +120,52 @@ impl Thread {
                 .metadata()
                 .method(method_index);
 
-            if !(method.access_flags().has_type(&AccessFlagType::Native)
-                || method.attribute(&"Code".to_string()).is_ok())
-            {
-                if let Some(Primitive::Reference(mut this_index)) = this {
-                    loop {
-                        if let Ok(this_object) = self.global.reference(this_index) {
-                            let this_class = self.global.class(this_object.class().unwrap())?;
-                            let class_metadata = this_class.metadata();
+            let access_flags = method.access_flags();
 
-                            if let Ok(method_index) = class_metadata.method_index(&method_ref) {
-                                if class_metadata
+            if !access_flags.has_type(&AccessFlagType::Static) {
+                if this.is_none() || this.as_ref().unwrap().is_null() {
+                    return Err(WasmJVMError::NullPointerException(format!("self was null when calling {:?}", method_ref)));
+                }
+            }
+
+            // Bypass for native methods, <init>, and <clinit>.
+            if !access_flags.has_type(&AccessFlagType::Native) && method.attribute(&"Code".to_string()).is_err() {
+                if let Some(Primitive::Reference(this_index)) = this {
+                    if let Ok(this_object) = self.global.reference(this_index) {
+                        let mut this_class_index = this_object.class().unwrap();
+
+                        loop {
+                            let this_class = self.global.class(this_class_index)?;
+                            let this_metadata = this_class.metadata();
+
+                            if let Ok(method_index) = this_metadata.method_index(&method_ref) {
+                                if this_metadata
                                     .method(method_index)
                                     .attribute(&"Code".to_string())
                                     .is_ok()
                                 {
-                                    method_ref.class = class_metadata.this_class().clone();
+                                    method_ref.class = this_metadata.this_class().clone();
+    
                                     break;
                                 }
                             }
 
-                            let super_class = class_metadata.super_class().as_ref().unwrap();
-                            this_index = self.global.class_index(super_class).unwrap();
-                        } else {
-                            break;
+                            if let Ok(method_index) = this_metadata.method_index(&method_ref) {
+                                if this_metadata
+                                    .method(method_index)
+                                    .attribute(&"Code".to_string())
+                                    .is_ok()
+                                {
+                                    method_ref.class = this_metadata.this_class().clone();
+
+                                    break;
+                                }
+                            }
+
+                            let super_class = this_metadata.super_class().as_ref().unwrap();
+                            let super_class_index = self.global.class_index(super_class).unwrap();
+
+                            this_class_index = super_class_index;
                         }
                     }
                 }
@@ -177,12 +207,21 @@ impl Thread {
             i += 1;
         }
 
-        let frame = Frame::new(method_ref, locals)?;
+        Ok(Frame::new(method_ref, locals)?)
+    }
+
+    fn new_frame(
+        self: &mut Self,
+        method_ref: MethodRef,
+        this: Option<Primitive>,
+        local_variables: Vec<Primitive>,
+    ) -> Result<(), WasmJVMError> {
+        let frame = self.build_frame(method_ref, this, local_variables)?;
 
         self.frames.push(frame);
 
         Ok(())
-    }
+    } 
 
     fn new_static_frame(
         self: &mut Self,
@@ -202,7 +241,9 @@ impl Thread {
             Descriptor::void(),
         );
 
-        let _result = self.new_static_frame(method_ref, Vec::new());
+        if let Ok(frame) = self.build_frame(method_ref, None, Vec::new()) {
+            self.frames.push(frame);
+        }
 
         Ok(())
     }
@@ -217,7 +258,11 @@ impl Thread {
 
         let method_ref = MethodRef::new(class_name, "<init>".to_string(), Descriptor::void());
 
-        self.new_frame(method_ref, Some(Primitive::Reference(this)), Vec::new())
+        let frame = self.build_frame(method_ref, Some(Primitive::Reference(this)), Vec::new())?;
+
+        self.frames.push(frame);
+
+        Ok(())
     }
 
     fn new_main_frame(self: &mut Self) -> Result<(), WasmJVMError> {
@@ -233,11 +278,11 @@ impl Thread {
         Ok(())
     }
 
-    pub fn unwind(self: &Self) -> Result<String, WasmJVMError> {
+    pub fn stack_trace(self: &Self) -> Result<String, WasmJVMError> {
         let frame_count = self.frames.len();
 
         if frame_count == 0 {
-            return Ok(format!("===== Empty Thread ======"));
+            return Ok(format!("===== Thread (Empty) ======\n"));
         }
 
         let frame = &self.frames[frame_count - 1];
@@ -275,7 +320,7 @@ impl Thread {
         let frames: String = frames.join("\n");
 
         let message = format!(
-            "===== Thread ======\n{}\n{}\n================",
+            "===== Thread ======\n{}\n{}\n================\n",
             opcode, frames
         );
 
@@ -283,7 +328,17 @@ impl Thread {
     }
 
     pub fn tick(self: &mut Self) -> Result<ThreadResult, WasmJVMError> {
+        let priority = self.global.thread_priority()?;
+
+        if self.priority < priority {
+            return Ok(ThreadResult::Continue);
+        }
+
         if self.frames.len() == 0 {
+            if priority > 0 && priority == self.priority {
+                self.global.thread_unlock(priority)?;
+            }
+
             return Ok(ThreadResult::Stop);
         }
 
@@ -374,8 +429,6 @@ impl Thread {
                         *pc = (*pc as isize + offset) as usize;
                     }
 
-                    println!("{:?} {:?} {:?}", frame_throw, throw_entries, pc);
-
                     out_frames.append(&mut new_frames);
                     if r#return.is_some() && frame_throw.is_none() {
                         if let Some(r#return) = r#return {
@@ -416,7 +469,7 @@ impl Thread {
             let mut frame = self.frames.pop().unwrap();
 
             if self.frames.len() == 0 {
-                return Err(WasmJVMError::TODO(41));
+                return Err(WasmJVMError::UnhandledException(format!("{:?}", self.global.reference_p(&frame.throw.unwrap()).unwrap())));
             } else {
                 let mut next_frame = self.frames.pop().unwrap();
                 *next_frame.throw_mut() = Some(frame.throw_mut().as_ref().unwrap().clone());
@@ -437,9 +490,10 @@ impl Thread {
     ) -> Result<Vec<Primitive>, WasmJVMError> {
         let mut locals = Vec::new();
 
-        for r#type in descriptor.parameters() {
+        for r#type in descriptor.parameters().rev() {
             locals.push(stack.pop().unwrap().into_type(r#type)?);
         }
+        locals.reverse();
 
         Ok(locals)
     }
@@ -648,6 +702,14 @@ impl Thread {
 
                 match (object.inner(), index) {
                     (RustObject::Array(array), Primitive::Int(index)) => {
+                        if index < 0 {
+                            return Err(WasmJVMError::IndexOutOfBoundException(format!("{} < 0", index)));
+                        }
+
+                        if index >= array.len() as i32 {
+                            return Err(WasmJVMError::IndexOutOfBoundException(format!("{} >= {}", index, array.len())));
+                        }
+
                         let value = array[index as usize].clone();
 
                         match opcode {
@@ -785,7 +847,27 @@ impl Thread {
 
                 1
             }
-            OpCode::DupX1 => todo!(),
+            OpCode::DupX1 => {
+                // TODO: Check for category 2.
+                let value1 = stack.pop().unwrap();
+                let value2 = stack.pop().unwrap();
+
+                if true {
+                    stack.push(value1.clone());
+                    stack.push(value2);
+                    stack.push(value1);
+                } else {
+                    let value3 = stack.pop().unwrap();
+
+                    stack.push(value2.clone());
+                    stack.push(value1.clone());
+                    stack.push(value3);
+                    stack.push(value2);
+                    stack.push(value1);
+                }
+
+                1
+            },
             OpCode::DupX2 => todo!(),
             OpCode::Dup2 => {
                 let v = stack.pop().unwrap();
@@ -1244,10 +1326,10 @@ impl Thread {
                         let condition: bool = match opcode {
                             OpCode::IfIcmpeq => cmp == 0,
                             OpCode::IfIcmpne => cmp != 0,
+                            OpCode::IfIcmple => cmp <= 0,
                             OpCode::IfIcmplt => cmp < 0,
                             OpCode::IfIcmpge => cmp >= 0,
                             OpCode::IfIcmpgt => cmp > 0,
-                            OpCode::IfIcmple => cmp <= 0,
                             _ => unreachable!(),
                         };
 

@@ -4,12 +4,12 @@ use wasmjvm_class::{Class, WithFields};
 
 use crate::Primitive;
 
-pub static JAVA_OBJECT: &str = "java/lang/Object";
-pub static JAVA_STRING: &str = "java/lang/String";
-pub static JAVA_CLASS: &str = "java/lang/Class";
-pub static JAVA_NATIVE: &str = "java/lang/Native";
-pub static JAVA_LOADER: &str = "java/lang/Loader";
-pub static JAVA_THREAD: &str = "java/lang/Thread";
+pub const JAVA_OBJECT: &str = "java/lang/Object";
+pub const JAVA_STRING: &str = "java/lang/String";
+pub const JAVA_CLASS: &str = "java/lang/Class";
+pub const JAVA_NATIVE: &str = "java/lang/Native";
+pub const JAVA_LOADER: &str = "java/lang/Loader";
+pub const JAVA_THREAD: &str = "java/lang/Thread";
 
 #[derive(Debug)]
 pub struct ClassInstance {

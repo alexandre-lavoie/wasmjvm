@@ -14,6 +14,7 @@ use crate::{
 pub type RegisterFn = Box<dyn Fn(&mut NativeInterface)>;
 
 static mut HEAP: Option<Vec<Option<Object>>> = None;
+const HEAP_SIZE: usize = 4096;
 
 #[derive(Debug, Default, Clone)]
 pub struct Heap {
@@ -27,6 +28,7 @@ pub struct GlobalData {
     loader_index: Option<usize>,
     classes: HashMap<String, usize>,
     threads: Vec<usize>,
+    thread_priority: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -64,20 +66,20 @@ impl Heap {
         Err(WasmJVMError::TODO(1))
     }
 
-    pub fn index(self: &Self) -> usize {
+    pub fn index(self: &Self) -> Result<usize, WasmJVMError> {
         unsafe {
             if let Some(heap) = &HEAP {
                 if let Ok(index) = self.index.lock() {
                     if *index >= heap.len() {
-                        panic!("Out of heap")
+                        Err(WasmJVMError::OutOfHeap)
+                    } else {
+                        Ok(*index)
                     }
-
-                    *index
                 } else {
                     unreachable!();
                 }
             } else {
-                0
+                Ok(0)
             }
         }
     }
@@ -85,7 +87,7 @@ impl Heap {
     pub fn alloc(self: &mut Self, object: Object) -> Result<usize, WasmJVMError> {
         unsafe {
             if HEAP.is_none() {
-                let mut heap: Vec<Option<Object>> = Vec::with_capacity(1024);
+                let mut heap: Vec<Option<Object>> = Vec::with_capacity(HEAP_SIZE);
 
                 for _ in 0..heap.capacity() {
                     heap.push(None);
@@ -98,7 +100,11 @@ impl Heap {
         let index = if let Ok(mut index) = self.index.lock() {
             unsafe {
                 if let Some(heap) = &mut HEAP {
-                    heap[*index] = Some(object);
+                    if let Some(entry) = heap.get_mut(*index) {
+                        *entry = Some(object);
+                    } else {
+                        return Err(WasmJVMError::OutOfHeap);
+                    }
                 }
             }
 
@@ -120,7 +126,7 @@ impl Global {
         }
     }
 
-    pub fn index(self: &Self) -> usize {
+    pub fn index(self: &Self) -> Result<usize, WasmJVMError> {
         self.heap.index()
     }
 
@@ -168,7 +174,7 @@ impl Global {
         if let RustObject::Class(class) = object.inner() {
             Ok(class)
         } else {
-            Err(WasmJVMError::TODO(6))
+            Err(WasmJVMError::ClassNotFoundException(format!("Expected class at {} but found {:?}", index, object)))
         }
     }
 
@@ -304,6 +310,40 @@ impl Global {
         }
     }
 
+    pub fn thread_lock(self: &mut Self, priority: usize) -> Result<bool, WasmJVMError> {
+        if let Ok(mut data) = self.data.lock() {
+            if priority > data.thread_priority {
+                data.thread_priority = priority;
+
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Err(WasmJVMError::TODO(42))
+        }
+    }
+
+    pub fn thread_unlock(self: &mut Self, priority: usize) -> Result<(), WasmJVMError> {
+        if let Ok(mut data) = self.data.lock() {
+            if priority == data.thread_priority {
+                data.thread_priority -= 1;
+            }
+
+            Ok(())
+        } else {
+            Err(WasmJVMError::TODO(43))
+        }
+    }
+
+    pub fn thread_priority(self: &Self) -> Result<usize, WasmJVMError> {
+        if let Ok(data) = self.data.lock() {
+            Ok(data.thread_priority)
+        } else {
+            Err(WasmJVMError::TODO(44))
+        }
+    }
+
     pub fn array_set(
         self: &mut Self,
         reference: Primitive,
@@ -313,6 +353,14 @@ impl Global {
         let object = self.reference_p_mut(&reference)?;
 
         if let (RustObject::Array(array), Primitive::Int(index)) = (object.inner_mut(), index) {
+            if index < 0 {
+                return Err(WasmJVMError::IndexOutOfBoundException(format!("{} < 0", index)));
+            }
+
+            if index >= array.len() as i32 {
+                return Err(WasmJVMError::IndexOutOfBoundException(format!("{} >= {}", index, array.len())));
+            }
+
             array[index as usize] = value;
 
             return Ok(());
@@ -384,7 +432,7 @@ impl Global {
         Ok(fields)
     }
 
-    pub fn main_class_set(self: &Self, class_name: &String) -> Result<(), WasmJVMError> {
+    pub fn set_main_class(self: &Self, class_name: &String) -> Result<(), WasmJVMError> {
         let class_ref = self.class_index(class_name)?;
 
         if let Ok(mut data) = self.data.lock() {
@@ -418,10 +466,7 @@ impl Global {
             }
         }
 
-        Err(WasmJVMError::ClassNotFoundException(format!(
-            "Could not find class {}",
-            name
-        )))
+        Err(WasmJVMError::ClassNotFoundException(format!("{}", name)))
     }
 
     pub fn default_init(self: &mut Self, index: usize) -> Result<(), WasmJVMError> {
@@ -459,13 +504,17 @@ impl Global {
 
     pub fn new_object(self: &mut Self, object: Object) -> Result<usize, WasmJVMError> {
         if let Ok(mut data) = self.data.lock() {
-            let index = self.heap.index();
+            let index = self.heap.index()?;
 
             match object.inner() {
                 RustObject::Class(class) => {
-                    // TODO: Check if duplicate insert.
-                    data.classes
-                        .insert(class.metadata().this_class().clone(), index);
+                    let class_name = class.metadata().this_class().clone();
+
+                    if data.classes.contains_key(&class_name) {
+                        todo!();
+                    }
+
+                    data.classes.insert(class_name, index);
                 }
                 RustObject::Loader(loader) => {
                     if data.loader_index.is_some() {
@@ -501,7 +550,6 @@ impl Global {
         inner: RustObject,
     ) -> Result<usize, WasmJVMError> {
         let class_index = self.class_index(class)?;
-        let class = self.class_mut(class_index)?;
         let fields = self.resolve_fields(class_index)?;
 
         let object = Object::new(class_index, fields, inner)?;
@@ -515,5 +563,25 @@ impl Global {
         self.default_init(index)?;
 
         Ok(index)
+    }
+
+    pub fn heap_trace(self: &Self) -> Result<String, WasmJVMError> {
+        unsafe {
+            let mut entries: Vec<String> = Vec::new();
+
+            if let Some(heap) = &HEAP {
+                for (i, entry) in heap.iter().enumerate() {
+                    if let Some(entry) = entry {
+                        entries.push(format!("{}: {:?}", i, entry));
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                todo!();
+            }
+
+            Ok(format!("===== Heap =====\n{}\n================\n", entries.join("\n\n")))
+        }
     }
 }

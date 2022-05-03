@@ -1,6 +1,5 @@
 import * as React from "react";
 
-import * as zip from "@zip.js/zip.js";
 import { useEffect, useState } from "react";
 import { useFilePicker } from "use-file-picker";
 import { asyncLoad } from "./module";
@@ -41,45 +40,10 @@ export default function App() {
                 let buffer = await file.arrayBuffer();
                 let uint8 = new Uint8Array(buffer);
 
-                if (file.name.endsWith(".class")) {
-                    let result = module.class_load(uint8);
+                if (file.name.endsWith(".jar")) {
+                    module.load_jar(uint8);
 
-                    let cls = result?.slice(1, result.length - 1);
-
-                    return [{ path: file.name, cls, main: false }];
-                } else if (file.name.endsWith(".jar")) {
-                    let rawReader = new zip.Uint8ArrayReader(uint8);
-                    let zipReader = new zip.ZipReader(rawReader);
-
-                    let entries = await zipReader.getEntries();
-
-                    let data = await Promise.all(entries.map(async entry => {
-                        let fileName = entry.filename;
-
-                        if (fileName.endsWith(".class")) {
-                            let data = await entry.getData(new zip.Uint8ArrayWriter());
-
-                            let result = module.class_load(data);
-
-                            let cls = result?.slice(1, result.length - 1);
-
-                            if(classes[cls]) {
-                                return { ...classes[cls], path: fileName };
-                            } else {
-                                return { path: fileName, cls, main: false };
-                            }
-                        } else if (fileName.endsWith("META-INF/MANIFEST.MF")) {
-                            let data = await entry.getData(new zip.TextWriter());
-
-                            main = /Main-Class:\s*([a-zA-Z0-9]*)/g.exec(data)[1].trim();
-
-                            return null;
-                        } else {
-                            return null;
-                        }
-                    }));
-
-                    return data.filter(data => data != null);
+                    return [{ path: file.name, cls: file.name, main: false }];
                 } else {
                     return [];
                 }

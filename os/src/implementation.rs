@@ -1,48 +1,170 @@
-use std::io::BufRead;
+use std::{
+    collections::HashMap,
+    io::{BufRead, Read, Write},
+};
 
 use wasmjvm_class::{Descriptor, MethodRef, SingleType, Type};
 use wasmjvm_native::{register_method, NativeEnv, NativeInterface, Primitive, RustObject};
 
 pub fn register(interface: &mut NativeInterface) {
+    unsafe {
+        STREAMS = Some(HashMap::new());
+    }
+
     register_method!(
         interface,
-        system_print,
-        "java/io/PrintStream",
-        "print",
-        vec![Type::Single(SingleType::Object(
-            "java/lang/String".to_string()
-        ))],
+        file_bind,
+        "java/io/FileInputStream",
+        "nativeBind",
+        vec![],
         Type::Single(SingleType::Void)
     );
+
     register_method!(
         interface,
-        system_input,
-        "java/io/InputStream",
-        "input",
+        file_read,
+        "java/io/FileInputStream",
+        "nativeRead",
         vec![],
-        Type::Single(SingleType::Object("java/lang/String".to_string()))
+        Type::Single(SingleType::Int)
+    );
+
+    register_method!(
+        interface,
+        file_bind,
+        "java/io/FileOutputStream",
+        "nativeBind",
+        vec![],
+        Type::Single(SingleType::Void)
+    );
+
+    register_method!(
+        interface,
+        file_write,
+        "java/io/FileOutputStream",
+        "nativeWrite",
+        vec![
+            Type::Single(SingleType::Int)
+        ],
+        Type::Single(SingleType::Void)
     );
 }
 
-fn system_print(env: &mut NativeEnv) -> Primitive {
-    if let [value, ..] = &env.variables()[..] {
-        let value = env.reference(value).unwrap();
+static mut STREAMS: Option<HashMap<usize, Box<dyn FileCursor>>> = None;
 
-        if let RustObject::String(value) = value.inner() {
-            print!("{}", value);
-            return Primitive::Void;
-        };
-    }
-    panic!("system_print failed.");
+trait FileCursor {
+    fn write(self: &mut Self, value: i32);
+    fn read(self: &mut Self) -> i32;
 }
 
-fn system_input(env: &mut NativeEnv) -> Primitive {
-    println!("");
+struct SystemStream {
+    buffer: Vec<u8>,
+}
 
-    let stdin = std::io::stdin();
-    let line = stdin.lock().lines().next().unwrap().unwrap();
-    let index = env.new_string(line).unwrap();
-    let reference = Primitive::Reference(index);
+impl SystemStream {
+    fn new() -> Self {
+        Self { buffer: Vec::new() }
+    }
 
-    reference
+    fn buffer_read(self: &mut Self) {
+        std::io::stdout().flush().unwrap();
+        let line = std::io::stdin().lock().lines().next().unwrap().unwrap();
+        let mut bytes: Vec<u8> = line.into();
+        bytes.push('\n' as u8);
+        bytes.reverse();
+        self.buffer.append(&mut bytes);
+    }
+}
+
+impl FileCursor for SystemStream {
+    fn write(self: &mut Self, value: i32) {
+        std::io::stdout().lock().write(&[value as u8]).unwrap();
+    }
+
+    fn read(self: &mut Self) -> i32 {
+        if self.buffer.is_empty() {
+            self.buffer_read();
+        }
+
+        self.buffer.pop().unwrap() as i32
+    }
+}
+
+struct FileStream {
+    file: std::fs::File,
+}
+
+impl FileStream {
+    pub fn new(path: String) -> Self {
+        let file = std::fs::File::open(path).unwrap();
+
+        Self { file }
+    }
+}
+
+impl FileCursor for FileStream {
+    fn write(self: &mut Self, value: i32) {
+        self.file.write(&[value as u8]).unwrap();
+    }
+
+    fn read(self: &mut Self) -> i32 {
+        let mut buffer = [0u8; 1];
+        self.file.read(&mut buffer).unwrap();
+
+        buffer[0] as i32
+    }
+}
+
+fn file_bind(env: &mut NativeEnv) -> Primitive {
+    if let [this_ref, ..] = &env.variables()[..] {
+        if let Primitive::Reference(this_index) = this_ref {
+            let this = env.reference(&this_ref).unwrap();
+            let path_ref = this.fields.get("path").unwrap();
+            let path_object = env.reference(&path_ref).unwrap();
+            if let RustObject::String(path) = path_object.inner() {
+                if let Some(streams) = unsafe { &mut STREAMS } {
+                    if !streams.contains_key(this_index) {
+                        let stream: Box<dyn FileCursor> = if path == "<sys>" {
+                            Box::new(SystemStream::new())
+                        } else {
+                            Box::new(FileStream::new(path.to_string()))
+                        };
+
+                        streams.insert(*this_index, stream);
+
+                        return Primitive::Void;
+                    }
+                }
+            }
+        }
+    }
+
+    unreachable!();
+}
+
+fn file_read(env: &mut NativeEnv) -> Primitive {
+    if let [this_ref, ..] = &env.variables()[..] {
+        if let Primitive::Reference(this_index) = this_ref {
+            if let Some(streams) = unsafe { &mut STREAMS } {
+                return Primitive::Int(streams.get_mut(this_index).unwrap().read());
+            }
+        }
+    }
+
+    unreachable!()
+}
+
+fn file_write(env: &mut NativeEnv) -> Primitive {
+    if let [this_ref, value, ..] = &env.variables()[..] {
+        if let Primitive::Reference(this_index) = this_ref {
+            if let Some(streams) = unsafe { &mut STREAMS } {
+                if let Primitive::Int(value) = value {
+                    streams.get_mut(this_index).unwrap().write(*value);
+                    return Primitive::Void;
+                }
+            }
+        }
+    }
+
+    unreachable!()
 }

@@ -7,5 +7,6 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+zip = { version = "0.6.2", default-features = false, features = ["deflate"] }
 wasmjvm_class = { path = "../class", version = "0.1.0" }
 wasmjvm_common = { path = "../common", version = "0.1.0" }

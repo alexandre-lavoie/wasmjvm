@@ -26,5 +26,7 @@ pub enum WasmJVMError {
     LinkageError(String),
     NoSuchFieldError(String),
     NoSuchMethodError(String),
-    ClassFormatError(String)
+    ClassFormatError(String),
+    UnhandledException(String),
+    OutOfHeap
 }
