@@ -31,33 +31,33 @@ The following is the currently planned features for the project. This may change
 
 Create the most basic program to run on the web. This should be simply returning a primitive from a single method class.
 
-- [ ] OS Build.
-- [ ] Web Build.
-- [ ] Handle single `.class` file.
-- [ ] Basic VM.
-- [ ] Basic JavaScript interactions.
+- [X] OS Build.
+- [X] Web Build.
+- [X] Handle single `.class` file.
+- [X] Basic VM.
+- [X] Basic JavaScript interactions.
 
 ### 🍖 Primitive
 
 Create a program that can handle all primitive operations. 
 
-- [ ] Byte
-- [ ] Char
-- [ ] Double
-- [ ] Int
-- [ ] Long
-- [ ] Object
-- [ ] Short
-- [ ] Boolean
-- [ ] Array
+- [X] Byte
+- [X] Char
+- [X] Double
+- [X] Int
+- [X] Long
+- [X] Object
+- [X] Short
+- [X] Boolean
+- [X] Array
 
 ### 👋 Hello World
 
 Create a program that can handle non-primitive types. Output should be printable to screen using `System.out.println` (or equivalent).
 
-- [ ] Handle `.jar` file.
-- [ ] Multiple classes.
-- [ ] [Native](https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-2.html#jvms-2.5.6) methods.
+- [X] Handle `.jar` file.
+- [X] Multiple classes.
+- [X] [Native](https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-2.html#jvms-2.5.6) methods.
 
 ## 🔖 Related Projects
 
