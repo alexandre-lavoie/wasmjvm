@@ -1,8 +1,8 @@
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashSet};
 
 use crate::{Global, Object, OpCode, Primitive, RustObject};
 use wasmjvm_class::{
-    AccessFlagType, Constant, Descriptor, MethodRef, WithAccessFlags, WithAttributes, Type, SingleType, WithInterfaces,
+    AccessFlagType, Constant, Descriptor, MethodRef, WithAccessFlags, WithAttributes, Type, SingleType, WithInterfaces, AttributeBody, ExceptionEntry,
 };
 use wasmjvm_common::WasmJVMError;
 
@@ -12,6 +12,8 @@ pub struct Frame {
     method_ref: MethodRef,
     local_variables: Vec<Primitive>,
     operand_stack: Vec<Primitive>,
+    throw: Option<Primitive>,
+    throw_entries: Vec<ExceptionEntry> 
 }
 
 impl Frame {
@@ -24,6 +26,8 @@ impl Frame {
             pc: 0usize,
             local_variables,
             operand_stack: Vec::new(),
+            throw: None,
+            throw_entries: Vec::new()
         })
     }
 
@@ -31,13 +35,15 @@ impl Frame {
         &self.operand_stack
     }
 
-    pub fn pc_stack_locals_mut(
+    pub fn all_mut(
         self: &mut Self,
-    ) -> (&mut usize, &mut Vec<Primitive>, &mut Vec<Primitive>) {
+    ) -> (&mut usize, &mut Vec<Primitive>, &mut Vec<Primitive>, &mut Option<Primitive>, &mut Vec<ExceptionEntry>) {
         (
             &mut self.pc,
             &mut self.operand_stack,
             &mut self.local_variables,
+            &mut self.throw,
+            &mut self.throw_entries
         )
     }
 
@@ -51,6 +57,10 @@ impl Frame {
 
     pub fn local_variables_mut(self: &mut Self) -> &mut Vec<Primitive> {
         &mut self.local_variables
+    }
+
+    pub fn throw_mut(self: &mut Self) -> &mut Option<Primitive> {
+        &mut self.throw
     }
 
     pub fn pc(self: &Self) -> usize {
@@ -243,8 +253,12 @@ impl Thread {
             };
 
             if let wasmjvm_class::AttributeBody::Code(body) = code {
-                let opcode = OpCode::from_u8(body.code[frame.pc()]).unwrap();
-                format!("OpCode: {:?}\n", opcode)
+                if frame.pc() < body.code.len() {
+                    let opcode = OpCode::from_u8(body.code[frame.pc()]).unwrap();
+                    format!("OpCode: {:?}\n", opcode)
+                } else {
+                    format!("End\n")
+                }
             } else {
                 format!("Invalid\n")
             }
@@ -279,10 +293,10 @@ impl Thread {
 
         let mut out_frames: Vec<(MethodRef, Option<Primitive>, Vec<Primitive>)> = Vec::new();
         let mut out_return: Option<Primitive> = None;
+        let mut out_throw = false;
 
         let (class_index, method_index, descriptor) = self.global.method(&frame.method_ref)?;
         let class = self.global.class(class_index)?;
-
         let method = class.metadata().method(method_index);
 
         if method.access_flags().has_type(&AccessFlagType::Native) {
@@ -295,26 +309,93 @@ impl Thread {
             };
 
             if let wasmjvm_class::AttributeBody::Code(body) = code {
-                let (pc, stack, locals) = frame.pc_stack_locals_mut();
+                let (pc, stack, locals, frame_throw, throw_entries) = frame.all_mut();
 
-                let (mut new_frames, r#return, offset) = Self::code_tick(
-                    &mut self.global.clone(),
-                    pc,
-                    &body.code,
-                    stack,
-                    locals,
-                    class.metadata(),
-                )?;
+                if frame_throw.is_some() && throw_entries.len() == 0 {
+                    let throw_reference = frame_throw.as_ref().unwrap();
+                    let throw_object = self.global.reference_p(&throw_reference)?;
+                    let throw_class = self.global.class(throw_object.class().unwrap())?;
+                    let mut class_names = HashSet::new();
+                    let mut class_name_queue = vec![throw_class.metadata().this_class()];
+                    while class_name_queue.len() > 0 {
+                        let class_name = class_name_queue.pop().unwrap();
+                        let class_index = self.global.class_index(&class_name)?;
+                        let class = self.global.class(class_index)?;
+        
+                        class_names.insert(class_name);
 
-                out_frames.append(&mut new_frames);
-                if let Some(r#return) = r#return {
-                    out_return = Some(r#return.into_type(descriptor.output())?);
+                        if let Some(super_class) = class.metadata().super_class() {
+                            class_name_queue.push(super_class);
+                        }
+                    }
+
+                    for exception in body.exception_table.iter() {
+                        if !(*pc >= exception.start_pc as usize && *pc <= exception.end_pc as usize) {
+                            continue;
+                        }
+
+                        if exception.catch_type as usize == 0 {
+                            throw_entries.push(exception.clone());
+                        } else {
+                            let exception_constant = class.metadata().constant(exception.catch_type as usize);
+                            if let Constant::Class { name } = exception_constant {
+                                if class_names.contains(name) {
+                                    throw_entries.push(exception.clone());
+                                }
+                            } else {
+                                todo!("{:?}", exception_constant);
+                            }
+                        }
+                    }
+
+                    throw_entries.reverse();
+
+                    if throw_entries.len() > 0 {
+                        *pc = throw_entries[throw_entries.len() - 1].handler_pc as usize;
+                        stack.push(frame_throw.as_ref().unwrap().clone());
+                    } else {
+                        out_throw = true;
+                    }
                 }
 
-                if offset >= 0 {
-                    *pc += offset as usize;
-                } else {
-                    *pc = (*pc as isize + offset) as usize;
+                if !out_throw {
+                    let (mut new_frames, r#return, offset, throw) = Self::code_tick(
+                        &mut self.global.clone(),
+                        pc,
+                        &body.code,
+                        stack,
+                        locals,
+                        class.metadata(),
+                    )?;
+
+                    if offset >= 0 {
+                        *pc += offset as usize;
+                    } else {
+                        *pc = (*pc as isize + offset) as usize;
+                    }
+
+                    println!("{:?} {:?} {:?}", frame_throw, throw_entries, pc);
+
+                    out_frames.append(&mut new_frames);
+                    if r#return.is_some() && frame_throw.is_none() {
+                        if let Some(r#return) = r#return {
+                            out_return = Some(r#return.into_type(descriptor.output())?);
+                        }
+                    } else if r#return.is_some() && frame_throw.is_some() && throw_entries.iter().any(|entry| *pc == entry.handler_pc as usize) {
+                        throw_entries.pop();
+
+                        if throw_entries.len() == 0 {
+                            out_throw = true;
+                        } else {
+                            let exception = &throw_entries[throw_entries.len() - 1];
+                            *pc = exception.handler_pc as usize;
+                            stack.push(frame_throw.as_ref().unwrap().clone());
+                        }
+                    }
+
+                    if let Some(throw) = throw {
+                        *frame_throw = Some(throw);
+                    }
                 }
             } else {
                 return Err(WasmJVMError::TODO(28));
@@ -331,10 +412,20 @@ impl Thread {
                 let frame = &mut self.frames[frame_count - 1];
                 frame.operand_stack_mut().push(r#return);
             }
-        }
+        } else if out_throw {
+            let mut frame = self.frames.pop().unwrap();
 
-        for (method_ref, this, locals) in out_frames {
-            self.new_frame(method_ref, this, locals)?;
+            if self.frames.len() == 0 {
+                return Err(WasmJVMError::TODO(41));
+            } else {
+                let mut next_frame = self.frames.pop().unwrap();
+                *next_frame.throw_mut() = Some(frame.throw_mut().as_ref().unwrap().clone());
+                self.frames.push(next_frame);
+            }
+        } else {
+            for (method_ref, this, locals) in out_frames {
+                self.new_frame(method_ref, this, locals)?;
+            }
         }
 
         Ok(ThreadResult::Continue)
@@ -365,11 +456,13 @@ impl Thread {
             Vec<(MethodRef, Option<Primitive>, Vec<Primitive>)>,
             Option<Primitive>,
             isize,
+            Option<Primitive>
         ),
         WasmJVMError,
     > {
         let mut frames: Vec<(MethodRef, Option<Primitive>, Vec<Primitive>)> = Vec::new();
         let mut r#return = None;
+        let mut throw = None;
 
         let opcode_raw = code[*pc];
         let opcode = OpCode::from_u8(opcode_raw)?;
@@ -1394,7 +1487,13 @@ impl Thread {
 
                 1
             }
-            OpCode::Athrow => todo!(),
+            OpCode::Athrow => {
+                let object_ref = stack.pop().unwrap();
+
+                throw = Some(object_ref);
+
+                1
+            },
             OpCode::Instanceof | OpCode::CheckCast => {
                 // TODO: CheckCast difference with Instanceof
                 let i1 = code[*pc + 1] as u16;
@@ -1537,6 +1636,6 @@ impl Thread {
             OpCode::Impdep2 => todo!(),
         };
 
-        Ok((frames, r#return, offset))
+        Ok((frames, r#return, offset, throw))
     }
 }

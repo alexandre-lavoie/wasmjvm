@@ -350,9 +350,12 @@ impl Global {
         field_ref: &FieldRef,
         value: Primitive,
     ) -> Result<(), WasmJVMError> {
-        let object_mut = self.reference_p_mut(&this_ref)?;
+        // TODO: Null field?
+        if !this_ref.is_null() {
+            let object_mut = self.reference_p_mut(&this_ref)?;
 
-        object_mut.fields.insert(field_ref.name.clone(), value);
+            object_mut.fields.insert(field_ref.name.clone(), value);
+        }
 
         Ok(())
     }
