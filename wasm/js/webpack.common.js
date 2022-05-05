@@ -3,6 +3,7 @@ const { CleanWebpackPlugin } = require("clean-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const WasmPackPlugin = require('@wasm-tool/wasm-pack-plugin');
 const TsconfigPathsPlugin = require("tsconfig-paths-webpack-plugin");
+const CopyPlugin = require("copy-webpack-plugin");
 
 module.exports = {
     entry: {
@@ -35,6 +36,11 @@ module.exports = {
         new WasmPackPlugin({
             crateDirectory: "..",
             outDir: "./js/pkg"
+        }),
+        new CopyPlugin({
+            patterns: [
+                { from: "../../java/dist/", to: "./jars/" }
+            ]
         })
     ],
     output: {

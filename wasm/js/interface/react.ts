@@ -1,4 +1,5 @@
 import * as React from "react";
+import { JAVA_RESOURCES } from "./resources";
 
 let worker = new Worker(new URL("./worker.ts", import.meta.url));
 
@@ -92,6 +93,7 @@ export class FileStream extends Stream {
 export default class ReactInterface {
     public static setOutput: React.Dispatch<React.SetStateAction<string>>;
     public static setRunning: React.Dispatch<React.SetStateAction<boolean>>;
+    public static setDev: React.Dispatch<React.SetStateAction<boolean>>;
 
     private static streams: Map<number, Stream> = new Map();
     public static pendingStdins: ((buffer: string) => void)[] = [];
@@ -124,5 +126,31 @@ export default class ReactInterface {
     public static stdin(message: string) {
         this.pendingStdins.forEach(stdin => stdin(message + "\n"));
         this.pendingStdins = [];
+    }
+
+    public static async loadResources() {
+        if(JAVA_RESOURCES != null && JAVA_RESOURCES.jars != null) {
+            setTimeout(async () => {
+                let loadCount = 0;
+
+                await Promise.all(JAVA_RESOURCES.jars.map(async (path: string) => {
+                    try {
+                        let res = await fetch(path);
+                        let blob = await res.blob();
+                        let buffer = await blob.arrayBuffer();
+                        this.loadJar(new Uint8Array(buffer));
+                        loadCount += 1;
+                    } catch(e) {
+                        console.error(e);
+                    }
+    
+                    return true;
+                }));
+    
+                if(loadCount == 0) {
+                    this.setDev(true);
+                }
+            }, 1000);
+        }
     }
 }
