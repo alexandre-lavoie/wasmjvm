@@ -1,8 +1,9 @@
-use std::collections::{VecDeque, HashSet};
+use std::collections::HashSet;
 
 use crate::{Global, Object, OpCode, Primitive, RustObject};
 use wasmjvm_class::{
-    AccessFlagType, Constant, Descriptor, MethodRef, WithAccessFlags, WithAttributes, Type, SingleType, WithInterfaces, AttributeBody, ExceptionEntry,
+    AccessFlagType, Constant, Descriptor, ExceptionEntry, MethodRef, SingleType, Type,
+    WithAccessFlags, WithAttributes, WithInterfaces,
 };
 use wasmjvm_common::WasmJVMError;
 
@@ -13,7 +14,7 @@ pub struct Frame {
     local_variables: Vec<Primitive>,
     operand_stack: Vec<Primitive>,
     throw: Option<Primitive>,
-    throw_entries: Vec<ExceptionEntry> 
+    throw_entries: Vec<ExceptionEntry>,
 }
 
 impl Frame {
@@ -27,7 +28,7 @@ impl Frame {
             local_variables,
             operand_stack: Vec::new(),
             throw: None,
-            throw_entries: Vec::new()
+            throw_entries: Vec::new(),
         })
     }
 
@@ -37,13 +38,19 @@ impl Frame {
 
     pub fn all_mut(
         self: &mut Self,
-    ) -> (&mut usize, &mut Vec<Primitive>, &mut Vec<Primitive>, &mut Option<Primitive>, &mut Vec<ExceptionEntry>) {
+    ) -> (
+        &mut usize,
+        &mut Vec<Primitive>,
+        &mut Vec<Primitive>,
+        &mut Option<Primitive>,
+        &mut Vec<ExceptionEntry>,
+    ) {
         (
             &mut self.pc,
             &mut self.operand_stack,
             &mut self.local_variables,
             &mut self.throw,
-            &mut self.throw_entries
+            &mut self.throw_entries,
         )
     }
 
@@ -76,7 +83,7 @@ impl Frame {
 pub struct Thread {
     global: Global,
     frames: Vec<Frame>,
-    priority: usize
+    priority: usize,
 }
 
 pub enum ThreadResult {
@@ -90,7 +97,7 @@ impl Thread {
         Self {
             global,
             frames: Vec::new(),
-            priority
+            priority,
         }
     }
 
@@ -98,7 +105,7 @@ impl Thread {
         let mut thread = Self {
             global,
             frames: Vec::new(),
-            priority: 0
+            priority: 0,
         };
 
         thread.new_main_frame()?;
@@ -112,64 +119,66 @@ impl Thread {
         this: Option<Primitive>,
         local_variables: Vec<Primitive>,
     ) -> Result<Frame, WasmJVMError> {
-        if let Ok((class_index, method_index, _descriptor)) = self.global.method(&method_ref) {
-            let method = self
-                .global
-                .class(class_index)
-                .unwrap()
-                .metadata()
-                .method(method_index);
+        let mut checked_this_class = this.is_none();
+        loop {
+            let class_index =
+                if let Ok(class_index) = self.global.class_index(method_ref.class.as_str()) {
+                    class_index
+                } else {
+                    self.global
+                        .loader_mut()?
+                        .load_class_name(method_ref.class.as_str())?
+                };
 
-            let access_flags = method.access_flags();
+            let metadata = self.global.class(class_index)?.metadata();
 
-            if !access_flags.has_type(&AccessFlagType::Static) {
-                if this.is_none() || this.as_ref().unwrap().is_null() {
-                    return Err(WasmJVMError::NullPointerException(format!("self was null when calling {:?}", method_ref)));
-                }
-            }
+            if let Ok(method_index) = metadata.method_index(&method_ref) {
+                let method = metadata.method(method_index);
 
-            // Bypass for native methods, <init>, and <clinit>.
-            if !access_flags.has_type(&AccessFlagType::Native) && method.attribute(&"Code".to_string()).is_err() {
-                if let Some(Primitive::Reference(this_index)) = this {
-                    if let Ok(this_object) = self.global.reference(this_index) {
-                        let mut this_class_index = this_object.class().unwrap();
+                let access_flags = method.access_flags();
 
-                        loop {
-                            let this_class = self.global.class(this_class_index)?;
-                            let this_metadata = this_class.metadata();
-
-                            if let Ok(method_index) = this_metadata.method_index(&method_ref) {
-                                if this_metadata
-                                    .method(method_index)
-                                    .attribute(&"Code".to_string())
-                                    .is_ok()
-                                {
-                                    method_ref.class = this_metadata.this_class().clone();
-    
-                                    break;
-                                }
-                            }
-
-                            if let Ok(method_index) = this_metadata.method_index(&method_ref) {
-                                if this_metadata
-                                    .method(method_index)
-                                    .attribute(&"Code".to_string())
-                                    .is_ok()
-                                {
-                                    method_ref.class = this_metadata.this_class().clone();
-
-                                    break;
-                                }
-                            }
-
-                            let super_class = this_metadata.super_class().as_ref().unwrap();
-                            let super_class_index = self.global.class_index(super_class).unwrap();
-
-                            this_class_index = super_class_index;
-                        }
+                if !access_flags.has_type(&AccessFlagType::Static) {
+                    if this.is_none() || this.as_ref().unwrap().is_null() {
+                        return Err(WasmJVMError::NullPointerException(format!(
+                            "self was null when calling {:?}",
+                            method_ref
+                        )));
                     }
                 }
+
+                if access_flags.has_type(&AccessFlagType::Native) {
+                    break;
+                }
+
+                if method.attribute(&"Code".to_string()).is_ok() {
+                    break;
+                }
             }
+
+            if !checked_this_class {
+                checked_this_class = true;
+
+                let this_object = self.global.reference_p(this.as_ref().unwrap())?;
+                let this_class = self
+                    .global
+                    .reference(*this_object.class().as_ref().unwrap())?;
+
+                if let RustObject::Class(class) = this_class.inner() {
+                    method_ref.class = class.metadata().this_class().to_string();
+                } else {
+                    unreachable!();
+                }
+
+                continue;
+            }
+
+            if let Some(super_class) = metadata.super_class().as_ref() {
+                method_ref.class = super_class.clone();
+
+                continue;
+            }
+
+            return Err(WasmJVMError::NoSuchMethodError(format!("{:?}", method_ref)));
         }
 
         let max_locals = {
@@ -221,7 +230,7 @@ impl Thread {
         self.frames.push(frame);
 
         Ok(())
-    } 
+    }
 
     fn new_static_frame(
         self: &mut Self,
@@ -241,8 +250,12 @@ impl Thread {
             Descriptor::void(),
         );
 
-        if let Ok(frame) = self.build_frame(method_ref, None, Vec::new()) {
-            self.frames.push(frame);
+        if self.global.method(&method_ref).is_ok() {
+            if let Ok(frame) = self.build_frame(method_ref, None, Vec::new()) {
+                self.frames.push(frame);
+            } else {
+                unreachable!()
+            }
         }
 
         Ok(())
@@ -256,7 +269,11 @@ impl Thread {
         let class = self.global.class(class)?;
         let class_name = class.metadata().this_class().clone();
 
-        let method_ref = MethodRef::new(class_name, "<init>".to_string(), Descriptor::void());
+        let method_ref = MethodRef::new(
+            class_name.to_string(),
+            "<init>".to_string(),
+            Descriptor::void(),
+        );
 
         let frame = self.build_frame(method_ref, Some(Primitive::Reference(this)), Vec::new())?;
 
@@ -278,7 +295,7 @@ impl Thread {
         Ok(())
     }
 
-    pub fn stack_trace(self: &Self) -> Result<String, WasmJVMError> {
+    pub fn stack_trace(self: &mut Self) -> Result<String, WasmJVMError> {
         let frame_count = self.frames.len();
 
         if frame_count == 0 {
@@ -327,7 +344,7 @@ impl Thread {
         Ok(message)
     }
 
-    pub fn tick(self: &mut Self) -> Result<ThreadResult, WasmJVMError> {
+    pub async fn tick(self: &mut Self) -> Result<ThreadResult, WasmJVMError> {
         let priority = self.global.thread_priority()?;
 
         if self.priority < priority {
@@ -355,7 +372,7 @@ impl Thread {
         let method = class.metadata().method(method_index);
 
         if method.access_flags().has_type(&AccessFlagType::Native) {
-            let result = self.global.native_invoke(&frame.method_ref, variables)?;
+            let result = self.global.native_invoke(&frame.method_ref, variables).await?;
             out_return = Some(result.into_type(descriptor.output())?);
         } else {
             let code = {
@@ -374,9 +391,9 @@ impl Thread {
                     let mut class_name_queue = vec![throw_class.metadata().this_class()];
                     while class_name_queue.len() > 0 {
                         let class_name = class_name_queue.pop().unwrap();
-                        let class_index = self.global.class_index(&class_name)?;
+                        let class_index = self.global.class_index(class_name)?;
                         let class = self.global.class(class_index)?;
-        
+
                         class_names.insert(class_name);
 
                         if let Some(super_class) = class.metadata().super_class() {
@@ -385,16 +402,18 @@ impl Thread {
                     }
 
                     for exception in body.exception_table.iter() {
-                        if !(*pc >= exception.start_pc as usize && *pc <= exception.end_pc as usize) {
+                        if !(*pc >= exception.start_pc as usize && *pc <= exception.end_pc as usize)
+                        {
                             continue;
                         }
 
                         if exception.catch_type as usize == 0 {
                             throw_entries.push(exception.clone());
                         } else {
-                            let exception_constant = class.metadata().constant(exception.catch_type as usize);
+                            let exception_constant =
+                                class.metadata().constant(exception.catch_type as usize);
                             if let Constant::Class { name } = exception_constant {
-                                if class_names.contains(name) {
+                                if class_names.contains(name.as_str()) {
                                     throw_entries.push(exception.clone());
                                 }
                             } else {
@@ -421,7 +440,7 @@ impl Thread {
                         stack,
                         locals,
                         class.metadata(),
-                    )?;
+                    ).await?;
 
                     if offset >= 0 {
                         *pc += offset as usize;
@@ -434,7 +453,12 @@ impl Thread {
                         if let Some(r#return) = r#return {
                             out_return = Some(r#return.into_type(descriptor.output())?);
                         }
-                    } else if r#return.is_some() && frame_throw.is_some() && throw_entries.iter().any(|entry| *pc == entry.handler_pc as usize) {
+                    } else if r#return.is_some()
+                        && frame_throw.is_some()
+                        && throw_entries
+                            .iter()
+                            .any(|entry| *pc == entry.handler_pc as usize)
+                    {
                         throw_entries.pop();
 
                         if throw_entries.len() == 0 {
@@ -469,7 +493,10 @@ impl Thread {
             let mut frame = self.frames.pop().unwrap();
 
             if self.frames.len() == 0 {
-                return Err(WasmJVMError::UnhandledException(format!("{:?}", self.global.reference_p(&frame.throw.unwrap()).unwrap())));
+                return Err(WasmJVMError::UnhandledException(format!(
+                    "{:?}",
+                    self.global.reference_p(&frame.throw.unwrap()).unwrap()
+                )));
             } else {
                 let mut next_frame = self.frames.pop().unwrap();
                 *next_frame.throw_mut() = Some(frame.throw_mut().as_ref().unwrap().clone());
@@ -498,7 +525,7 @@ impl Thread {
         Ok(locals)
     }
 
-    fn code_tick(
+    async fn code_tick(
         global: &mut Global,
         pc: &mut usize,
         code: &Vec<u8>,
@@ -510,7 +537,7 @@ impl Thread {
             Vec<(MethodRef, Option<Primitive>, Vec<Primitive>)>,
             Option<Primitive>,
             isize,
-            Option<Primitive>
+            Option<Primitive>,
         ),
         WasmJVMError,
     > {
@@ -703,11 +730,18 @@ impl Thread {
                 match (object.inner(), index) {
                     (RustObject::Array(array), Primitive::Int(index)) => {
                         if index < 0 {
-                            return Err(WasmJVMError::IndexOutOfBoundException(format!("{} < 0", index)));
+                            return Err(WasmJVMError::IndexOutOfBoundException(format!(
+                                "{} < 0",
+                                index
+                            )));
                         }
 
                         if index >= array.len() as i32 {
-                            return Err(WasmJVMError::IndexOutOfBoundException(format!("{} >= {}", index, array.len())));
+                            return Err(WasmJVMError::IndexOutOfBoundException(format!(
+                                "{} >= {}",
+                                index,
+                                array.len()
+                            )));
                         }
 
                         let value = array[index as usize].clone();
@@ -867,7 +901,7 @@ impl Thread {
                 }
 
                 1
-            },
+            }
             OpCode::DupX2 => todo!(),
             OpCode::Dup2 => {
                 let v = stack.pop().unwrap();
@@ -1320,32 +1354,50 @@ impl Thread {
                 let right = stack.pop().unwrap();
                 let left = stack.pop().unwrap();
 
-                let offset =
-                    if let Primitive::Int(cmp) = left.into_int()?.cmp(&right.into_int()?)? {
-                        // TODO: Check conditions.
-                        let condition: bool = match opcode {
-                            OpCode::IfIcmpeq => cmp == 0,
-                            OpCode::IfIcmpne => cmp != 0,
-                            OpCode::IfIcmple => cmp <= 0,
-                            OpCode::IfIcmplt => cmp < 0,
-                            OpCode::IfIcmpge => cmp >= 0,
-                            OpCode::IfIcmpgt => cmp > 0,
-                            _ => unreachable!(),
-                        };
-
-                        if condition {
-                            branch as isize
-                        } else {
-                            3
-                        }
-                    } else {
-                        return Err(WasmJVMError::TODO(31));
+                if let Primitive::Int(cmp) = left.into_int()?.cmp(&right.into_int()?)? {
+                    let condition: bool = match opcode {
+                        OpCode::IfIcmpeq => cmp == 0,
+                        OpCode::IfIcmpne => cmp != 0,
+                        OpCode::IfIcmple => cmp <= 0,
+                        OpCode::IfIcmplt => cmp < 0,
+                        OpCode::IfIcmpge => cmp >= 0,
+                        OpCode::IfIcmpgt => cmp > 0,
+                        _ => unreachable!(),
                     };
 
-                offset
+                    if condition {
+                        branch as isize
+                    } else {
+                        3
+                    }
+                } else {
+                    unreachable!();
+                }
             }
-            OpCode::IfAcmpeq => todo!(),
-            OpCode::IfAcmpne => todo!(),
+            OpCode::IfAcmpeq | OpCode::IfAcmpne => {
+                let b1 = code[*pc + 1] as u16;
+                let b2 = code[*pc + 2] as u16;
+                let branch = (b1 << 8 | b2) as i16;
+
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+
+                if let Primitive::Int(cmp) = left.cmp(&right)? {
+                    let condition: bool = match opcode {
+                        OpCode::IfAcmpeq => cmp == 0,
+                        OpCode::IfAcmpne => cmp != 0,
+                        _ => unreachable!(),
+                    };
+
+                    if condition {
+                        branch as isize
+                    } else {
+                        3
+                    }
+                } else {
+                    unreachable!();
+                }
+            }
             OpCode::Goto => {
                 let b1 = code[*pc + 1] as u16;
                 let b2 = code[*pc + 2] as u16;
@@ -1355,8 +1407,94 @@ impl Thread {
             }
             OpCode::Jsr => todo!(),
             OpCode::Ret => todo!(),
-            OpCode::Tableswitch => todo!(),
-            OpCode::Lookupswitch => todo!(),
+            OpCode::Tableswitch => {
+                let offset = if (*pc + 1) % 4 == 0 { 1 } else { 5 - ((*pc + 1) % 4) };
+
+                let defaultbyte1 = code[*pc + offset] as u32;
+                let defaultbyte2 = code[*pc + 1 + offset] as u32;
+                let defaultbyte3 = code[*pc + 2 + offset] as u32;
+                let defaultbyte4 = code[*pc + 3 + offset] as u32;
+                let default = ((defaultbyte1 << 24) | (defaultbyte2 << 16) | (defaultbyte3 << 8) | defaultbyte4) as i32;
+
+                let lowbyte1 = code[*pc + 4 + offset] as u32;
+                let lowbyte2 = code[*pc + 5 + offset] as u32;
+                let lowbyte3 = code[*pc + 6 + offset] as u32;
+                let lowbyte4 = code[*pc + 7 + offset] as u32;
+                let low = ((lowbyte1 << 24) | (lowbyte2 << 16) | (lowbyte3 << 8) | lowbyte4) as i32;
+
+                let highbyte1 = code[*pc + 8 + offset] as u32;
+                let highbyte2 = code[*pc + 9 + offset] as u32;
+                let highbyte3 = code[*pc + 10 + offset] as u32;
+                let highbyte4 = code[*pc + 11 + offset] as u32;
+                let high = ((highbyte1 << 24) | (highbyte2 << 16) | (highbyte3 << 8) | highbyte4) as i32;
+
+                if let Primitive::Int(index) = stack.pop().unwrap().into_int()? {
+                    let offset = if index < low || index > high {
+                        default as isize
+                    } else {
+                        let jumpindex = index as isize * 4;
+
+                        let jumpbyte1 = code[((*pc + 12) as isize + offset as isize + jumpindex) as usize] as u32;
+                        let jumpbyte2 = code[((*pc + 13) as isize + offset as isize + jumpindex) as usize] as u32;
+                        let jumpbyte3 = code[((*pc + 14) as isize + offset as isize + jumpindex) as usize] as u32;
+                        let jumpbyte4 = code[((*pc + 15) as isize + offset as isize + jumpindex) as usize] as u32;
+                        let jump = ((jumpbyte1 << 24) | (jumpbyte2 << 16) | (jumpbyte3 << 8) | jumpbyte4) as i32;
+
+                        jump as isize
+                    };
+
+                    offset
+                } else {
+                    unreachable!();
+                }
+            },
+            OpCode::Lookupswitch => {
+                let offset = if (*pc + 1) % 4 == 0 { 1 } else { 5 - ((*pc + 1) % 4) };
+
+                let defaultbyte1 = code[*pc + offset] as u32;
+                let defaultbyte2 = code[*pc + 1 + offset] as u32;
+                let defaultbyte3 = code[*pc + 2 + offset] as u32;
+                let defaultbyte4 = code[*pc + 3 + offset] as u32;
+                let default = ((defaultbyte1 << 24) | (defaultbyte2 << 16) | (defaultbyte3 << 8) | defaultbyte4) as i32;
+
+                let npairsbyte1 = code[*pc + 4 + offset] as u32;
+                let npairsbyte2 = code[*pc + 5 + offset] as u32;
+                let npairsbyte3 = code[*pc + 6 + offset] as u32;
+                let npairsbyte4 = code[*pc + 7 + offset] as u32;
+                let npairs = ((npairsbyte1 << 24) | (npairsbyte2 << 16) | (npairsbyte3 << 8) | npairsbyte4) as i32;
+
+                if let Primitive::Int(key) = stack.pop().unwrap().into_int()? {
+                    // TODO: Binary search
+
+                    let mut jump_offset = None;
+                    for i in 0..npairs {
+                        let intbyte1 = code[*pc + 8 + offset + i as usize * 8] as u32;
+                        let intbyte2 = code[*pc + 9 + offset + i as usize * 8] as u32;
+                        let intbyte3 = code[*pc + 10 + offset + i as usize * 8] as u32;
+                        let intbyte4 = code[*pc + 11 + offset + i as usize * 8] as u32;
+                        let int = ((intbyte1 << 24) | (intbyte2 << 16) | (intbyte3 << 8) | intbyte4) as i32;
+
+                        if int == key {
+                            let jump1 = code[*pc + 12 + offset + i as usize * 8] as u32;
+                            let jump2 = code[*pc + 13 + offset + i as usize * 8] as u32;
+                            let jump3 = code[*pc + 14 + offset + i as usize * 8] as u32;
+                            let jump4 = code[*pc + 15 + offset + i as usize * 8] as u32;
+                            let jump = ((jump1 << 24) | (jump2 << 16) | (jump3 << 8) | jump4) as i32;
+
+                            jump_offset = Some(jump as isize);
+                            break;
+                        }
+                    }
+
+                    if let Some(jump_offset) = jump_offset {
+                        jump_offset
+                    } else {
+                        default as isize
+                    }
+                } else {
+                    unreachable!();
+                }
+            },
             OpCode::Ireturn
             | OpCode::Lreturn
             | OpCode::Freturn
@@ -1388,14 +1526,16 @@ impl Thread {
                 let field_ref = metadata.constant(index);
 
                 if let Constant::FieldRef(field_ref) = field_ref {
-                    let field = global.static_field(field_ref)?.clone();
+                    if let Ok(field) = global.static_field(field_ref) {
+                        stack.push(field);
 
-                    stack.push(field);
+                        3
+                    } else {
+                        0
+                    }
                 } else {
                     return Err(WasmJVMError::TODO(32));
                 }
-
-                3
             }
             OpCode::PutStatic => {
                 let i1 = code[*pc + 1] as u16;
@@ -1531,7 +1671,7 @@ impl Thread {
             }
             OpCode::NewArray => {
                 // TODO: Check constant pool.
-                let r#type = code[*pc + 1] as usize;
+                let _type = code[*pc + 1] as usize;
                 let count = stack.pop().unwrap().into_int()?;
 
                 if let Primitive::Int(count) = count {
@@ -1545,7 +1685,7 @@ impl Thread {
             }
             OpCode::ANewArray => {
                 // TODO: Check constant pool.
-                let index = (code[*pc + 1] as usize) << 8 | code[*pc + 2] as usize;
+                let _index = (code[*pc + 1] as usize) << 8 | code[*pc + 2] as usize;
                 let count = stack.pop().unwrap().into_int()?;
 
                 if let Primitive::Int(count) = count {
@@ -1575,9 +1715,8 @@ impl Thread {
                 throw = Some(object_ref);
 
                 1
-            },
+            }
             OpCode::Instanceof | OpCode::CheckCast => {
-                // TODO: CheckCast difference with Instanceof
                 let i1 = code[*pc + 1] as u16;
                 let i2 = code[*pc + 2] as u16;
                 let index = (i1 << 8 | i2) as usize;
@@ -1585,10 +1724,10 @@ impl Thread {
                 let object_ref = stack.pop().unwrap();
 
                 let mut instanceof = true;
-                if let Constant::Class{ name } = class_ref {
+                if let Constant::Class { name } = class_ref {
                     let r#type: Type;
                     if name.starts_with("[") {
-                        let descriptor = Descriptor::from_string(name)?;
+                        let descriptor = Descriptor::from_str(name)?;
                         r#type = descriptor.output().clone();
                     } else {
                         r#type = Type::Single(SingleType::Object(name.clone()));
@@ -1647,12 +1786,15 @@ impl Thread {
                                                     break;
                                                 }
 
-                                                if let Some(super_class) = class_metadata.super_class() {
+                                                if let Some(super_class) =
+                                                    class_metadata.super_class()
+                                                {
                                                     if super_class == &class_type {
                                                         break;
                                                     }
 
-                                                    class_index = global.class_index(super_class)?;
+                                                    class_index =
+                                                        global.class_index(super_class)?;
                                                 } else {
                                                     instanceof = false;
                                                     break;
@@ -1660,7 +1802,7 @@ impl Thread {
                                             }
                                         }
                                     }
-                                },
+                                }
                                 _ => instanceof = false,
                             };
 
@@ -1685,16 +1827,29 @@ impl Thread {
                     return Err(WasmJVMError::TODO(40));
                 }
 
-                stack.push(Primitive::Int(instanceof as i32));
+                match opcode {
+                    OpCode::Instanceof => {
+                        stack.push(Primitive::Int(instanceof as i32));
+                    }
+                    OpCode::CheckCast => {
+                        if instanceof {
+                            stack.push(object_ref);
+                        } else {
+                            // TODO: Better output.
+                            return Err(WasmJVMError::ClassCastException(String::new()));
+                        }
+                    }
+                    _ => unreachable!(),
+                }
 
                 3
-            },
+            }
             OpCode::MonitorEnter => todo!(),
             OpCode::MonitorExit => todo!(),
             OpCode::Wide => todo!(),
             OpCode::MultiANewArray => {
                 // TODO: Check constant pool.
-                let index = (code[*pc + 1] as usize) << 8 | code[*pc + 2] as usize;
+                let _index = (code[*pc + 1] as usize) << 8 | code[*pc + 2] as usize;
                 let dimensions = code[*pc + 3] as u8;
                 let mut counts = Vec::new();
 
@@ -1710,7 +1865,7 @@ impl Thread {
                 stack.push(Object::new_deep_array(global, &counts, 0)?);
 
                 4
-            },
+            }
             OpCode::GotoW => todo!(),
             OpCode::JsrW => todo!(),
             OpCode::Breakpoint => todo!(),

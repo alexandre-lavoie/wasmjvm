@@ -1,5 +1,3 @@
 package java.lang;
 
-public class Native {
-    
-}
+public class Native {}

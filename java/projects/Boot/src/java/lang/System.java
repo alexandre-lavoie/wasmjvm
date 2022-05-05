@@ -4,5 +4,5 @@ import java.io.*;
 
 public class System {
     public static final InputStream in = new FileInputStream("<sys>");
-    public static final PrintStream out = new FileOutputStream("<sys>");
+    public static final PrintStream out = new PrintStream("<sys>");
 }

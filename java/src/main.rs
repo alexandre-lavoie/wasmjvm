@@ -29,20 +29,34 @@ fn main() {
         fs::create_dir_all(project_out_path_buf.as_path()).unwrap();
 
         let project_src_path_buf = project_in_path_buf.join("src");
-        let mut args = vec![
-            "-source".to_string(),
-            "1.8".to_string(),
-            "-target".to_string(),
-            "1.8".to_string(),
-            "-extdirs".to_string(),
-            project_src_path_buf.to_str().unwrap().to_string(),
-            "-sourcepath".to_string(),
-            project_src_path_buf.to_str().unwrap().to_string(),
-            "-d".to_string(),
-            project_class_path_buf.to_str().unwrap().to_string(),
-            "-classpath".to_string(),
-            project_class_path_buf.to_str().unwrap().to_string(),
-        ];
+        let mut args = if project == "Boot".to_string() {
+            vec![
+                "-source".to_string(),
+                "1.8".to_string(),
+                "-target".to_string(),
+                "1.8".to_string(),
+                "-extdirs".to_string(),
+                project_src_path_buf.to_str().unwrap().to_string(),
+                "-sourcepath".to_string(),
+                project_src_path_buf.to_str().unwrap().to_string(),
+                "-d".to_string(),
+                project_class_path_buf.to_str().unwrap().to_string(),
+                "-classpath".to_string(),
+                project_class_path_buf.to_str().unwrap().to_string(),
+            ]
+        } else {
+            vec![
+                "-source".to_string(),
+                "1.8".to_string(),
+                "-target".to_string(),
+                "1.8".to_string(),
+                "-d".to_string(),
+                project_class_path_buf.to_str().unwrap().to_string(),
+                "-classpath".to_string(),
+                project_class_path_buf.to_str().unwrap().to_string(),
+            ]
+        };
+
         args.append(&mut java_project_classes(project_in_path_buf.as_path()));
         Command::new("javac").args(args).status().unwrap();
 

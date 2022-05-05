@@ -47,14 +47,17 @@ pub enum AttributeBody {
     SourceFile {
         sourcefile: String,
     },
+    Signature {
+        signature_index: u16
+    },
     User {
         info: Vec<u8>,
     },
 }
 
 impl Attribute {
-    pub fn name(self: &Self) -> &String {
-        &self.name
+    pub fn name(self: &Self) -> &str {
+        self.name.as_str()
     }
 }
 
@@ -102,6 +105,11 @@ impl ClassResolvable<Attribute> for AttributeInfo {
                     .to_string()?;
 
                 AttributeBody::SourceFile { sourcefile }
+            }
+            "Signature" => {
+                let signature_index: u16 = source.parse()?;
+
+                AttributeBody::Signature { signature_index }
             }
             _ => AttributeBody::User {
                 info: self.info.clone(),
@@ -156,7 +164,7 @@ impl Streamable<SourceStream, AttributeInfo> for AttributeInfo {
 pub trait WithAttributes {
     fn attributes(self: &Self) -> Option<Iter<Attribute>>;
 
-    fn attribute(self: &Self, name: &String) -> Result<&Attribute, WasmJVMError> {
+    fn attribute(self: &Self, name: &str) -> Result<&Attribute, WasmJVMError> {
         if let Some(attributes) = self.attributes() {
             for attribute in attributes {
                 if attribute.name() == name {

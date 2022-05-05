@@ -2,6 +2,15 @@ use wasmjvm_class::{Descriptor, MethodRef, SingleType, Type};
 use crate::{NativeEnv, NativeInterface, Object, Primitive, RustObject};
 
 #[macro_export]
+macro_rules! async_box {
+    ($async_func: ident, $func: ident) => {
+        fn $async_func(env: &mut NativeEnv) -> std::pin::Pin<std::boxed::Box<dyn std::future::Future<Output = Primitive> + '_>> {
+            Box::pin($func(env))
+        }
+    }
+}
+
+#[macro_export]
 macro_rules! register_method {
     ($interface: ident, $method: ident, $class: tt, $name: tt, $params: expr, $output: expr) => {
         $interface
@@ -20,7 +29,7 @@ macro_rules! register_method {
 pub fn register(interface: &mut NativeInterface) {
     register_method!(
         interface,
-        string_get_internal,
+        async_string_get_internal,
         "java/lang/String",
         "getInternal",
         vec![],
@@ -28,7 +37,7 @@ pub fn register(interface: &mut NativeInterface) {
     );
     register_method!(
         interface,
-        string_set_internal,
+        async_string_set_internal,
         "java/lang/String",
         "setInternal",
         vec![Type::Array(SingleType::Byte, 1)],
@@ -36,7 +45,7 @@ pub fn register(interface: &mut NativeInterface) {
     );
     register_method!(
         interface,
-        object_get_class,
+        async_object_get_class,
         "java/lang/Object",
         "getClass",
         vec![],
@@ -44,7 +53,7 @@ pub fn register(interface: &mut NativeInterface) {
     );
     register_method!(
         interface,
-        class_get_name,
+        async_class_get_name,
         "java/lang/Class",
         "getName",
         vec![],
@@ -52,7 +61,8 @@ pub fn register(interface: &mut NativeInterface) {
     );
 }
 
-fn string_get_internal(env: &mut NativeEnv) -> Primitive {
+async_box!(async_string_get_internal, string_get_internal);
+async fn string_get_internal(env: &mut NativeEnv) -> Primitive {
     let variables = env.variables().clone();
 
     let value = if let [this, ..] = &variables[..] {
@@ -86,7 +96,8 @@ fn string_get_internal(env: &mut NativeEnv) -> Primitive {
     index
 }
 
-fn string_set_internal(env: &mut NativeEnv) -> Primitive {
+async_box!(async_string_set_internal, string_set_internal);
+async fn string_set_internal(env: &mut NativeEnv) -> Primitive {
     let variables = &env.variables().clone();
 
     if let [this, raw, ..] = &variables[..] {
@@ -112,7 +123,8 @@ fn string_set_internal(env: &mut NativeEnv) -> Primitive {
     Primitive::Void
 }
 
-fn object_get_class(env: &mut NativeEnv) -> Primitive {
+async_box!(async_object_get_class, object_get_class);
+async fn object_get_class(env: &mut NativeEnv) -> Primitive {
     let variables = &env.variables().clone();
 
     if let [this] = &variables[..] {
@@ -123,13 +135,14 @@ fn object_get_class(env: &mut NativeEnv) -> Primitive {
     }
 }
 
-fn class_get_name(env: &mut NativeEnv) -> Primitive {
+async_box!(async_class_get_name, class_get_name);
+async fn class_get_name(env: &mut NativeEnv) -> Primitive {
     let variables = &env.variables().clone();
 
     if let [this] = &variables[..] {
         if let Primitive::Reference(this) = this {
             let class = env.global().class(*this).unwrap();
-            let class_name = class.metadata().this_class().clone();
+            let class_name = class.metadata().this_class().to_string();
 
             Primitive::Reference(env.new_string(class_name).unwrap())
         } else {

@@ -2,41 +2,68 @@ mod implementation;
 
 use implementation::register;
 use wasmjvm_common::WasmJVMError;
-use wasmjvm_native::Primitive;
+use wasmjvm_native::{Primitive, Jar};
 use wasmjvm_vm::VM;
 
-fn vm_eval<B: std::io::Read + std::io::Seek>(vm: &mut VM, boot_jar: B, jars: Vec<B>) -> Result<Primitive, WasmJVMError> {
+async fn vm_eval<B: 'static + std::io::Read + std::io::Seek>(vm: &mut VM, jars: Vec<Jar<B>>) -> Result<Primitive, WasmJVMError> {
+    for jar in jars {
+        vm.load_jar(jar)?;
+    }
+
     vm.register_native(Box::new(register))?;
     vm.register_native(Box::new(wasmjvm_native::register))?;
 
-    vm.boot(boot_jar)?;
-
-    vm.register_natives()?;
-
-    vm.load_jars(jars)?;
-
-    vm.run()
+    vm.run().await
 }
 
-fn eval() -> Result<(), WasmJVMError> {
-    let boot_jar = std::fs::File::open("./java/dist/Boot.jar").unwrap();
-    let jars = vec![];
+fn jars() -> Result<Vec<Jar<std::fs::File>>, WasmJVMError> {
+    let args: Vec<String> = std::env::args().skip(1).rev().collect();
 
-    let mut vm = VM::new();
-
-    let result = vm_eval(&mut vm, boot_jar, jars);
-
-    if let Ok(result) = result {
-        println!("{:?}", result);
-    } else if let Err(err) = result {
-        println!("\n{}\n{}\n{:?}", vm.heap_trace()?, vm.stack_trace()?, err);
-    } else {
-        unreachable!()
+    if args.len() == 0 {
+        return Err(WasmJVMError::IllegalArgumentException("Did not supply Jar to program.".to_string()));
     }
 
-    Ok(())
+    let mut jars = Vec::new();
+    for arg in args {
+        let jar_path = std::env::current_dir().unwrap().join(std::path::Path::new(&arg));
+
+        if !jar_path.exists() {
+            return Err(WasmJVMError::LinkageError(format!("Could not find file {}.", jar_path.to_str().unwrap())));
+        }
+
+        jars.push(Jar::new(std::fs::File::open(jar_path).unwrap()));
+    }
+
+    Ok(jars)
 }
 
-fn main() {
-    eval().unwrap();
+async fn eval() -> () {
+    match jars() {
+        Ok(jars) => {
+            let mut vm = VM::new();
+
+            let result = vm_eval(&mut vm, jars).await;
+
+            match result {
+                Ok(_result) => {
+                    // println!("{:?}", result);
+                }
+                Err(err) => {
+                    // println!("{}", vm.heap_trace().unwrap());
+                    println!("{}", vm.stack_trace().unwrap());
+                    println!("{:?}", err);
+                }
+            }
+        }
+        Err(err) => {
+            println!("{:?}", err);
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), ()> {
+    eval().await;
+
+    Ok(())
 }

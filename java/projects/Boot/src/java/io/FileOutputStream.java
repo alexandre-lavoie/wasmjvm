@@ -1,6 +1,6 @@
 package java.io;
 
-public class FileOutputStream extends PrintStream {
+public class FileOutputStream extends OutputStream {
     private String path;
 
     public FileOutputStream(String path) {
@@ -14,10 +14,5 @@ public class FileOutputStream extends PrintStream {
     @Override
     public void write(int value) {
         nativeWrite(value);
-    }
-
-    @Override
-    public void print(String string) {
-        super.print(string);
     }
 }

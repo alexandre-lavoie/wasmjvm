@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use wasmjvm_class::{Class, WithFields};
 use wasmjvm_common::WasmJVMError;
 
@@ -8,11 +6,43 @@ use crate::{
     JAVA_THREAD,
 };
 
-#[derive(Debug)]
+trait Resource {
+    fn load_class(self: &mut Self, name: &str) -> Result<Class, WasmJVMError>;
+}
+
+pub struct Jar<F: std::io::Read + std::io::Seek> {
+    zip_file: zip::ZipArchive<F>
+}
+
+impl<F> Jar<F> where F: std::io::Read + std::io::Seek {
+    pub fn new(reader: F) -> Self {
+        Self {
+            zip_file: zip::ZipArchive::new(reader).unwrap()
+        }
+    } 
+}
+
+impl<F> Resource for Jar<F> where F: std::io::Read + std::io::Seek {
+    fn load_class(self: &mut Self, name: &str) -> Result<Class, WasmJVMError> {
+        if let Ok(file) = self.zip_file.by_name(format!("{}.class", name).as_str()) {
+            Class::from_file(file)
+        } else {
+            Err(WasmJVMError::ClassNotFoundException(format!("{}", name)))
+        }
+    }
+}
+
 pub struct Loader {
     global: Global,
     clinit_thread: usize,
     init_thread: usize,
+    resources: Vec<Box<dyn Resource>>
+}
+
+impl std::fmt::Debug for Loader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Loader").field("global", &self.global).field("clinit_thread", &self.clinit_thread).field("init_thread", &self.init_thread).finish()
+    }
 }
 
 impl Loader {
@@ -25,6 +55,7 @@ impl Loader {
             global,
             clinit_thread: 0,
             init_thread: 0,
+            resources: Vec::new()
         }
     }
 
@@ -47,10 +78,7 @@ impl Loader {
     }
 
     pub fn load_class(self: &mut Self, metadata: Class) -> Result<usize, WasmJVMError> {
-        let class_index = self.global.class_index(&JAVA_CLASS.to_string())?;
-        // TODO: Look at Jar instead?
-        let is_main = metadata.method_refs(&"main".to_string())?.len() > 0;
-        let class_name = metadata.this_class().clone();
+        let class_index = self.global.class_index(JAVA_CLASS)?;
 
         let inner = RustObject::Class(ClassInstance::new(metadata));
         let class = Object::new(class_index, self.global.resolve_fields(class_index)?, inner)?;
@@ -60,53 +88,59 @@ impl Loader {
         self.clinit(object_index)?;
         self.default_init(class_index, object_index)?;
 
-        if is_main {
-            self.global.set_main_class(&class_name)?;
-        }
-
         Ok(object_index)
     }
 
-    pub fn load_class_file<F: std::io::Read>(
-        self: &mut Self,
-        reader: F,
-    ) -> Result<usize, WasmJVMError> {
-        self.load_class(Class::from_file(reader)?)
+    pub fn load_main_class(self: &mut Self) -> Result<usize, WasmJVMError> {
+        // TODO: Look at Jar for actual main class.
+        let main_class = "Main";
+        let class_index = self.load_class_name(main_class)?;
+        self.global.set_main_class(&main_class.to_string())?;
+
+        Ok(class_index)
     }
 
-    pub fn load_jar<F: std::io::Read + std::io::Seek>(
-        self: &mut Self,
-        reader: F,
-    ) -> Result<(), WasmJVMError> {
-        let mut jar = zip::ZipArchive::new(reader).unwrap();
+    pub fn load_class_name(self: &mut Self, name: &str) -> Result<usize, WasmJVMError> {
+        let class = self.extract_class(name)?;
+        self.load_class(class)
+    }
 
-        for i in 0..jar.len() {
-            let entry = jar.by_index(i);
-
-            if let Ok(entry) = entry {
-                if entry.is_file() {
-                    if entry.name().ends_with(".class") {
-                        self.load_class_file(entry)?;
-                    }
-                }
-            } else {
-                return Err(WasmJVMError::TODO(41));
+    fn extract_class(self: &mut Self, name: &str) -> Result<Class, WasmJVMError> {
+        for resource in self.resources.iter_mut() {
+            if let Ok(class) = resource.as_mut().load_class(name) {
+                return Ok(class);
             }
         }
+
+        Err(WasmJVMError::ClassNotFoundException(format!("Could not load class {}", name)))
+    }
+
+    pub fn load_jar<F: 'static + std::io::Read + std::io::Seek>(
+        self: &mut Self,
+        jar: Jar<F>,
+    ) -> Result<(), WasmJVMError> {
+        self.resources.push(Box::new(jar));
 
         Ok(())
     }
 
-    fn pop_boot_class(self: &mut Self, classes: &mut HashMap<String, Class>, class: &str) -> Result<Class, WasmJVMError> {
-        if let Some(class) = classes.remove(&class.to_string()) {
+    fn extract_boot_class(self: &mut Self, name: &str) -> Result<Class, WasmJVMError> {
+        if let Ok(class) = self.extract_class(name) {
             Ok(class)
         } else {
-            Err(WasmJVMError::ClassNotFoundException(format!("Could not load boot class {}", class)))
+            Err(WasmJVMError::ClassNotFoundException(format!("Could not load boot class {}", name)))
         }
     }
 
-    fn load_boot_classes(self: &mut Self, mut classes: HashMap<String, Class>) -> Result<(), WasmJVMError> {
-        let object_class = self.pop_boot_class(&mut classes, JAVA_OBJECT)?;
+    pub fn boot(self: &mut Self) -> Result<(), WasmJVMError> {
+        self.load_boot_classes()?;
+        self.load_main_class()?;
+
+        Ok(())
+    }
+
+    fn load_boot_classes(self: &mut Self) -> Result<(), WasmJVMError> {
+        let object_class = self.extract_boot_class(JAVA_OBJECT)?;
         let object_fields = object_class.field_names();
 
         let mut clinits = Vec::new();
@@ -121,7 +155,7 @@ impl Loader {
         clinits.push(object_index);
         inits.push((object_index, object_index));
 
-        let class_class = self.pop_boot_class(&mut classes, JAVA_CLASS)?;
+        let class_class = self.extract_boot_class(JAVA_CLASS)?;
         let mut class_fields = class_class.field_names();
         class_fields.append(&mut object_fields.clone());
 
@@ -134,7 +168,7 @@ impl Loader {
         clinits.push(class_index);
         inits.push((object_index, class_index));
 
-        let loader_class = self.pop_boot_class(&mut classes, JAVA_LOADER)?;
+        let loader_class = self.extract_boot_class(JAVA_LOADER)?;
         let loader = Object::new(
             class_index.clone(),
             class_fields.clone(),
@@ -144,7 +178,7 @@ impl Loader {
         clinits.push(loader_index);
         inits.push((class_index, loader_index));
 
-        let thread_class = self.pop_boot_class(&mut classes, JAVA_THREAD)?;
+        let thread_class = self.extract_boot_class(JAVA_THREAD)?;
         let thread_class = Object::new(
             class_index.clone(),
             class_fields.clone(),
@@ -180,44 +214,6 @@ impl Loader {
             RustObject::Thread(init_thread),
         )?;
         self.init_thread = self.global.new_object(init_thread)?;
-
-        Ok(())
-    }
-
-    pub fn load_boot_jar<F: std::io::Read + std::io::Seek>(
-        self: &mut Self,
-        reader: F,
-    ) -> Result<(), WasmJVMError> {
-        let mut jar = zip::ZipArchive::new(reader).unwrap();
-
-        let mut boot_classes: HashMap<String, Class> = HashMap::new();
-        let mut classes: Vec<Class> = Vec::new();
-        for i in 0..jar.len() {
-            let entry = jar.by_index(i);
-
-            if let Ok(entry) = entry {
-                if entry.is_file() {
-                    if entry.name().ends_with(".class") {
-                        let class = Class::from_file(entry)?;
-
-                        match class.this_class().as_str() {
-                            JAVA_OBJECT | JAVA_CLASS | JAVA_LOADER | JAVA_THREAD => {
-                                boot_classes.insert(class.this_class().clone(), class);
-                            }
-                            _ => classes.push(class),
-                        }
-                    }
-                }
-            } else {
-                return Err(WasmJVMError::LinkageError(format!("{:?}", entry.err().unwrap())));
-            }
-        }
-
-        self.load_boot_classes(boot_classes)?;
-
-        for class in classes {
-            self.load_class(class)?;
-        }
 
         Ok(())
     }

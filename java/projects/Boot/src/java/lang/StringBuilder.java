@@ -10,7 +10,13 @@ public class StringBuilder {
     }
 
     public String toString() {
-        return new String(this.buffer);
+        byte[] bufferCopy = new byte[this.pointer];
+
+        for(int i = 0; i < bufferCopy.length; i++) {
+            bufferCopy[i] = this.buffer[i];
+        }
+
+        return new String(bufferCopy);
     }
 
     public StringBuilder append(boolean value) {
@@ -63,7 +69,7 @@ public class StringBuilder {
             this.buffer[j - i + this.pointer] = buffer[j];
         }
 
-        this.pointer += buffer.length - 1 - i;
+        this.pointer += buffer.length - i;
 
         return this;
     }

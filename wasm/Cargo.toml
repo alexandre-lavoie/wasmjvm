@@ -8,6 +8,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 wasmjvm_class = { path = "../class", version = "0.1.0" }
 wasmjvm_vm = { path = "../vm", version = "0.1.0" }
 wasmjvm_common = { path = "../common", version = "0.1.0" }

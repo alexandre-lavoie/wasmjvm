@@ -17,4 +17,8 @@ public class Object {
     public String toString() {
         return new StringBuilder().append(this.getClass().getName()).append("(index=").append(this.index).append(")").toString();
     }
+
+    public boolean equals(Object other) {
+        return this == other;
+    }
 }

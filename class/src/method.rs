@@ -25,7 +25,7 @@ pub struct Method {
 pub trait WithMethods {
     fn methods(self: &Self) -> Option<Iter<Method>>;
 
-    fn method(self: &Self, name: &String) -> Result<&Method, WasmJVMError> {
+    fn method(self: &Self, name: &str) -> Result<&Method, WasmJVMError> {
         if let Some(methods) = self.methods() {
             for method in methods {
                 if method.name() == name {
@@ -39,8 +39,8 @@ pub trait WithMethods {
 }
 
 impl Method {
-    pub fn name(self: &Self) -> &String {
-        &self.name
+    pub fn name(self: &Self) -> &str {
+        self.name.as_str()
     }
 }
 

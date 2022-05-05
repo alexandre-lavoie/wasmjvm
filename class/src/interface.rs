@@ -14,15 +14,15 @@ pub struct Interface {
 }
 
 impl Interface {
-    fn name(self: &Self) -> &String {
-        &self.name
+    fn name(self: &Self) -> &str {
+        self.name.as_str()
     }
 }
 
 pub trait WithInterfaces {
     fn interfaces(self: &Self) -> Option<Iter<Interface>>;
 
-    fn interface(self: &Self, name: &String) -> Result<&Interface, WasmJVMError> {
+    fn interface(self: &Self, name: &str) -> Result<&Interface, WasmJVMError> {
         if let Some(interfaces) = self.interfaces() {
             for interface in interfaces {
                 if interface.name() == name {

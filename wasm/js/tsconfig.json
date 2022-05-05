@@ -1,11 +1,14 @@
 {
   "compilerOptions": {
     "baseUrl": "..",
-    "target": "ES5",
-    "module": "ES6",
+    "target": "es2020",
+    "module": "es2020",
     "jsx": "react-jsx",
     "moduleResolution": "Node",
     "downlevelIteration": true
   },
-  "include": ["./pkg/*.d.ts"]
+  "include": [
+    "./pkg/*.d.ts",
+    "./typing/*.d.ts"
+  ]
 }

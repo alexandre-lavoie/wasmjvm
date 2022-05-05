@@ -1,4 +1,6 @@
-package java.io;
+package java.util;
+
+import java.io.*;
 
 public class Scanner {
     private InputStream inputStream;

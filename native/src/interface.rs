@@ -1,10 +1,10 @@
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc, future::Future, pin::Pin};
 
 use crate::{Global, Object, Primitive};
 use wasmjvm_class::MethodRef;
 use wasmjvm_common::WasmJVMError;
 
-pub type NativeFn = Box<dyn Fn(&mut NativeEnv) -> Primitive>;
+pub type NativeFn = Box<dyn for<'a> Fn(&'a mut NativeEnv) -> Pin<Box<dyn Future<Output = Primitive> + 'a>>>;
 
 #[derive(Clone)]
 pub struct NativeMethod {
@@ -18,8 +18,8 @@ impl NativeMethod {
         }
     }
 
-    pub fn invoke(self: &Self, env: &mut NativeEnv) -> Primitive {
-        (self.raw)(env)
+    pub async fn invoke(self: &Self, env: &mut NativeEnv) -> Primitive {
+        (self.raw)(env).await
     }
 }
 

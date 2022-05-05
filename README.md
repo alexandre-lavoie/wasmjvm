@@ -15,13 +15,52 @@ This section includes all you need to build the project! We are currently develo
 - [OpenJDK](https://openjdk.java.net/) / etc (Build `.java` to `.class`/`.jar`).
 - [Rust](https://www.rust-lang.org/)
 
+### ☕ Java Build
+
+The core/test Java files in `./java` can be built using:
+
+```
+cargo run -p wasmjvm_java
+```
+
 ### 🖥️ OS Build
 
-This is not implemented as of writing this.
+#### 🔧 Dev Run/Build
+
+```
+cargo run -p wasmjvm_os -- ...
+```
+
+(Where `...` are the jar files to run).
+
+#### ⚙️ Release Build
+
+```
+cargo build --release -p wasmjvm_os
+```
 
 ### 🌎 Browser Build
 
-This is not implemented as of writing this.
+#### 🔧 Dev Run/Build
+
+```
+cd ./wasm/js
+npm start
+```
+
+#### ⚙️ Release Build
+
+```
+cd ./wasm/js
+npm run build
+```
+
+#### 📁 Serving Builds
+
+```
+cd ./wasm/js
+python3 -m http.server -d ./dist
+```
 
 ## 📅 Milestones
 

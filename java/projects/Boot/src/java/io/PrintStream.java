@@ -1,14 +1,19 @@
 package java.io;
 
-public abstract class PrintStream {
-    public abstract void write(int value);
+public class PrintStream extends OutputStream {
+    private OutputStream outputStream;
 
-    public void write(byte value) {
-        this.write((int)value);
+    public PrintStream(OutputStream outputStream) {
+        this.outputStream = outputStream;
     }
 
-    public void write(char value) {
-        this.write((int)value);
+    public PrintStream(String path) {
+        this.outputStream = new FileOutputStream(path);
+    }
+
+    @Override
+    public void write(int value) {
+        outputStream.write(value);
     }
 
     public void print(String string) {
@@ -19,6 +24,10 @@ public abstract class PrintStream {
 
     public void println(String string) {
         this.print(string);
+        this.write('\n');
+    }
+
+    public void println() {
         this.write('\n');
     }
 }

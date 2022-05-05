@@ -53,14 +53,14 @@ impl Class {
         &self.methods[index]
     }
 
-    pub fn method_refs(self: &Self, name: &String) -> Result<Vec<MethodRef>, WasmJVMError> {
+    pub fn method_refs(self: &Self, name: &str) -> Result<Vec<MethodRef>, WasmJVMError> {
         let mut refs = Vec::new();
 
         for method in self.methods.iter() {
             if name == method.name() {
                 refs.push(MethodRef::new(
-                    self.this_class().clone(),
-                    method.name().clone(),
+                    self.this_class().to_string(),
+                    method.name().to_string(),
                     method.descriptor().clone(),
                 ));
             }
@@ -81,7 +81,7 @@ impl Class {
         &self.access_flags
     }
 
-    pub fn this_class(self: &Self) -> &String {
+    pub fn this_class(self: &Self) -> &str {
         &self.this_class
     }
 

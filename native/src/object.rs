@@ -231,7 +231,7 @@ impl Primitive {
         match self {
             Primitive::Null => Ok(Primitive::Null),
             Primitive::Reference(value) => Ok(Primitive::Reference(*value)),
-            _ => panic!("Invalid reference: {:?}.", self),
+            _ => Err(WasmJVMError::UnsupportedOperationException(format!("Expected reference but got {:?}.", self))),
         }
     }
 
@@ -267,6 +267,10 @@ impl Primitive {
             (Primitive::Long(left), Primitive::Long(right)) => (left > right, left == right),
             (Primitive::Float(left), Primitive::Float(right)) => (left > right, left == right),
             (Primitive::Double(left), Primitive::Double(right)) => (left > right, left == right),
+            (Primitive::Reference(left), Primitive::Reference(right)) => (false, left == right),
+            (Primitive::Reference(_left), Primitive::Null) => (false, false),
+            (Primitive::Null, Primitive::Reference(_right)) => (false, false),
+            (Primitive::Null, Primitive::Null) => (false, true),
             _ => unreachable!(),
         };
 

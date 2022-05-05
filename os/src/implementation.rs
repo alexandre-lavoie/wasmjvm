@@ -4,7 +4,9 @@ use std::{
 };
 
 use wasmjvm_class::{Descriptor, MethodRef, SingleType, Type};
-use wasmjvm_native::{register_method, NativeEnv, NativeInterface, Primitive, RustObject};
+use wasmjvm_native::{
+    async_box, register_method, NativeEnv, NativeInterface, Primitive, RustObject,
+};
 
 pub fn register(interface: &mut NativeInterface) {
     unsafe {
@@ -13,7 +15,7 @@ pub fn register(interface: &mut NativeInterface) {
 
     register_method!(
         interface,
-        file_bind,
+        async_file_bind_read,
         "java/io/FileInputStream",
         "nativeBind",
         vec![],
@@ -22,7 +24,7 @@ pub fn register(interface: &mut NativeInterface) {
 
     register_method!(
         interface,
-        file_read,
+        async_file_read,
         "java/io/FileInputStream",
         "nativeRead",
         vec![],
@@ -31,7 +33,7 @@ pub fn register(interface: &mut NativeInterface) {
 
     register_method!(
         interface,
-        file_bind,
+        async_file_bind_write,
         "java/io/FileOutputStream",
         "nativeBind",
         vec![],
@@ -40,13 +42,20 @@ pub fn register(interface: &mut NativeInterface) {
 
     register_method!(
         interface,
-        file_write,
+        async_file_write,
         "java/io/FileOutputStream",
         "nativeWrite",
-        vec![
-            Type::Single(SingleType::Int)
-        ],
+        vec![Type::Single(SingleType::Int)],
         Type::Single(SingleType::Void)
+    );
+
+    register_method!(
+        interface,
+        async_random_long,
+        "java/util/Random",
+        "nativeNextLong",
+        vec![],
+        Type::Single(SingleType::Long)
     );
 }
 
@@ -95,8 +104,12 @@ struct FileStream {
 }
 
 impl FileStream {
-    pub fn new(path: String) -> Self {
-        let file = std::fs::File::open(path).unwrap();
+    pub fn new(path: String, is_read: bool) -> Self {
+        let file = if is_read {
+            std::fs::File::open(path).unwrap()
+        } else {
+            std::fs::File::create(path).unwrap()
+        };
 
         Self { file }
     }
@@ -115,7 +128,7 @@ impl FileCursor for FileStream {
     }
 }
 
-fn file_bind(env: &mut NativeEnv) -> Primitive {
+fn file_bind_mode(env: &mut NativeEnv, is_read: bool) -> Primitive {
     if let [this_ref, ..] = &env.variables()[..] {
         if let Primitive::Reference(this_index) = this_ref {
             let this = env.reference(&this_ref).unwrap();
@@ -127,7 +140,7 @@ fn file_bind(env: &mut NativeEnv) -> Primitive {
                         let stream: Box<dyn FileCursor> = if path == "<sys>" {
                             Box::new(SystemStream::new())
                         } else {
-                            Box::new(FileStream::new(path.to_string()))
+                            Box::new(FileStream::new(path.to_string(), is_read))
                         };
 
                         streams.insert(*this_index, stream);
@@ -142,7 +155,18 @@ fn file_bind(env: &mut NativeEnv) -> Primitive {
     unreachable!();
 }
 
-fn file_read(env: &mut NativeEnv) -> Primitive {
+async_box!(async_file_bind_read, file_bind_read);
+async fn file_bind_read(env: &mut NativeEnv) -> Primitive {
+    file_bind_mode(env, true)
+}
+
+async_box!(async_file_bind_write, file_bind_write);
+async fn file_bind_write(env: &mut NativeEnv) -> Primitive {
+    file_bind_mode(env, false)
+}
+
+async_box!(async_file_read, file_read);
+async fn file_read(env: &mut NativeEnv) -> Primitive {
     if let [this_ref, ..] = &env.variables()[..] {
         if let Primitive::Reference(this_index) = this_ref {
             if let Some(streams) = unsafe { &mut STREAMS } {
@@ -154,7 +178,8 @@ fn file_read(env: &mut NativeEnv) -> Primitive {
     unreachable!()
 }
 
-fn file_write(env: &mut NativeEnv) -> Primitive {
+async_box!(async_file_write, file_write);
+async fn file_write(env: &mut NativeEnv) -> Primitive {
     if let [this_ref, value, ..] = &env.variables()[..] {
         if let Primitive::Reference(this_index) = this_ref {
             if let Some(streams) = unsafe { &mut STREAMS } {
@@ -167,4 +192,9 @@ fn file_write(env: &mut NativeEnv) -> Primitive {
     }
 
     unreachable!()
+}
+
+async_box!(async_random_long, random_long);
+async fn random_long(_env: &mut NativeEnv) -> Primitive {
+    Primitive::Long(rand::random::<i64>().abs())
 }

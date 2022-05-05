@@ -1,5 +1,3 @@
-use std::fs;
-use std::io::Read;
 use std::result::Result;
 
 use crate::WasmJVMError;

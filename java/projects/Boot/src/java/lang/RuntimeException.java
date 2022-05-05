@@ -1,3 +1,3 @@
 package java.lang;
 
-public class RuntimeException extends Throwable {}
+public class RuntimeException extends Exception {}

@@ -4,47 +4,53 @@ mod implementation;
 use binding::JS;
 use wasm_bindgen::prelude::*;
 use wasmjvm_common::WasmJVMError;
+use wasmjvm_native::{Jar, Primitive};
 use wasmjvm_vm::VM;
 
 use crate::implementation::register;
 
 static mut STATIC_VM: Option<VM> = None;
 
-#[wasm_bindgen]
-pub fn run() -> JsValue {
-    inner_run()
-}
-
-fn inner_run() -> JsValue {
+fn check_vm() -> Result<(), WasmJVMError> {
     unsafe {
-        if let Some(vm) = &mut STATIC_VM {
-            let result = vm.run();
+        if STATIC_VM.is_none() {
+            let mut vm = VM::new();
 
-            match result {
-                Ok(result) => JsValue::from_str(format!("{:?}", result).as_str()),
-                Err(err) => JsValue::from_str(
-                    format!("{}\nError: {:?}", vm.stack_trace().unwrap(), err).as_str(),
-                ),
-            }
-        } else {
-            unreachable!()
+            vm.register_native(Box::new(wasmjvm_native::register))?;
+            vm.register_native(Box::new(register))?;
+
+            STATIC_VM = Some(vm);
         }
     }
+
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub async fn run() -> JsValue {
+    match run_inner().await {
+        Ok(result) => {
+            JsValue::from_str(format!("{:?}", result).as_str())    
+        },
+        Err(err) => JsValue::from_str(format!("Error: {:?}", err).as_str()),
+    }
+}
+
+pub async fn run_inner() -> Result<Primitive, WasmJVMError> {
+    check_vm()?;
+
+    let vm = unsafe { STATIC_VM.as_mut().unwrap() };
+
+    vm.run().await
 }
 
 #[wasm_bindgen]
 pub fn load_jar(jar: Vec<u8>) -> JsValue {
+    check_vm().unwrap();
+
     let jar = std::io::Cursor::new(jar);
 
-    let result = unsafe {
-        if STATIC_VM.is_none() {
-            inner_boot(jar)
-        } else {
-            inner_load_jar(jar)
-        }
-    };
-
-    match result {
+    match inner_load_jar(Jar::new(jar)) {
         Ok(string) => JsValue::from_str(format!("{}", string).as_str()),
         Err(err) => {
             JS::error(format!("{:?}", err));
@@ -53,35 +59,14 @@ pub fn load_jar(jar: Vec<u8>) -> JsValue {
     }
 }
 
-fn inner_load_jar<B: std::io::Read + std::io::Seek>(jar: B) -> Result<String, WasmJVMError> {
+fn inner_load_jar<B: 'static + std::io::Read + std::io::Seek>(jar: Jar<B>) -> Result<String, WasmJVMError> {
     unsafe {
         if let Some(vm) = &mut STATIC_VM {
-            vm.load_jars(vec![jar])?;
+            vm.load_jar(jar)?;
         } else {
             unreachable!()
         }
     };
 
     Ok("Loaded Jar".to_string())
-}
-
-fn inner_boot<B: std::io::Read + std::io::Seek>(jar: B) -> Result<String, WasmJVMError> {
-    unsafe {
-        if let Some(vm) = &mut STATIC_VM {
-            vm.load_jars(vec![jar])?;
-        } else {
-            let mut vm = VM::new();
-
-            vm.register_native(Box::new(wasmjvm_native::register))?;
-            vm.register_native(Box::new(register))?;
-
-            vm.boot(jar)?;
-
-            vm.register_natives()?;
-
-            STATIC_VM = Some(vm);
-        }
-    }
-
-    Ok("Booted VM".to_string())
 }

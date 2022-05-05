@@ -23,20 +23,20 @@ pub struct Field {
 }
 
 impl Field {
-    pub fn name(self: &Self) -> &String {
-        return &self.name;
+    pub fn name(self: &Self) -> &str {
+        self.name.as_str()
     }
 }
 
 pub trait WithFields {
     fn fields(self: &Self) -> Option<Iter<Field>>;
 
-    fn field_names(self: &Self) ->  Vec<String> {
+    fn field_names(self: &Self) -> Vec<String> {
         let mut fields = Vec::new();
 
         for field in self.fields().unwrap() {
             if !field.access_flags().has_type(&AccessFlagType::Static) {
-                fields.push(field.name().clone());
+                fields.push(field.name().to_string());
             }
         }
 
@@ -48,14 +48,14 @@ pub trait WithFields {
 
         for field in self.fields().unwrap() {
             if field.access_flags().has_type(&AccessFlagType::Static) {
-                fields.push(field.name().clone());
+                fields.push(field.name().to_string());
             }
         }
 
         fields
     }
 
-    fn field(self: &Self, name: &String) -> Result<&Field, WasmJVMError> {
+    fn field(self: &Self, name: &str) -> Result<&Field, WasmJVMError> {
         if let Some(fields) = self.fields() {
             for field in fields {
                 if field.name() == name {

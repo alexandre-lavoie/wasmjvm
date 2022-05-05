@@ -59,7 +59,7 @@ impl Descriptor {
 
     pub fn from_constant(constant: &Constant) -> Result<Descriptor, WasmJVMError> {
         match constant {
-            Constant::Utf8(string) | Constant::String(string) => Self::from_string(&string),
+            Constant::Utf8(string) | Constant::String(string) => Self::from_str(string.as_str()),
             Constant::MethodRef(MethodRef { descriptor, .. }) => Ok(descriptor.clone()),
             _ => Err(WasmJVMError::IllegalStateException(format!("Cannot convert {:?} to descriptor", constant)))
         }
@@ -114,7 +114,7 @@ impl Descriptor {
         }
     }
 
-    pub fn from_string(string: &String) -> Result<Descriptor, WasmJVMError> {
+    pub fn from_str(string: &str) -> Result<Descriptor, WasmJVMError> {
         let string_bytes = string.as_bytes();
 
         let mut parameters = Vec::new();
