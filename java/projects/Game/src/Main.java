@@ -1,3 +1,4 @@
+package src;
 import game.*;
 
 public class Main {

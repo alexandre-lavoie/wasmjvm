@@ -9,7 +9,7 @@ import Header from "./Header";
 export default function App() {
     let [running, setRunning] = useState(false);
     let [output, setOutput] = useState("");
-    let [dev, setDev] = useState(false);
+    let [dev, setDev] = useState(true);
 
     useEffect(() => {
         ReactInterface.setOutput = setOutput;

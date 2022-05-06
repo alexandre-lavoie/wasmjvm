@@ -129,11 +129,11 @@ export default class ReactInterface {
     }
 
     public static async loadResources() {
-        if(JAVA_RESOURCES != null && JAVA_RESOURCES.jars != null) {
+        if(JAVA_RESOURCES != null && (JAVA_RESOURCES as any).jars != null) {
             setTimeout(async () => {
                 let loadCount = 0;
 
-                await Promise.all(JAVA_RESOURCES.jars.map(async (path: string) => {
+                await Promise.all((JAVA_RESOURCES as any).jars.map(async (path: string) => {
                     try {
                         let res = await fetch(path);
                         let blob = await res.blob();
